@@ -2,6 +2,13 @@
 name = "lower-ir-utils-macros"
 version = "0.1.0"
 edition = "2021"
+authors = ["Gonçalo Carvalho"]
+description = "Procedural macros for lower-ir-utils (`#[jit_export]` and supporting helpers)."
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/glslang/lower-ir-utils"
+keywords = ["cranelift", "jit", "codegen", "macro", "jit_export"]
+categories = ["development-tools"]
 
 [lib]
 proc-macro = true

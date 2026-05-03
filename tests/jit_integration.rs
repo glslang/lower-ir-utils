@@ -38,7 +38,10 @@ fn calls_extern_taking_i64() {
     let ext_id = double_i64_jit::declare(&mut module);
 
     let wrap_id = define_jit_fn!(
-        &mut module, "wrap", Linkage::Export, fn(i64) -> i64,
+        &mut module,
+        "wrap",
+        Linkage::Export,
+        fn(i64) -> i64,
         |bcx, module, params| double_i64_jit::call(bcx, module, ext_id, params[0]),
     )
     .unwrap();
@@ -69,7 +72,9 @@ fn calls_extern_with_map_pointer_and_static_str() {
     let ext_id = lookup_jit::declare(&mut module);
 
     let wrap_id = define_jit_fn!(
-        &mut module, "wrap", Linkage::Export,
+        &mut module,
+        "wrap",
+        Linkage::Export,
         fn(*const HashMap<String, i64>) -> i64,
         |bcx, module, params| {
             // params[0]: Value passthrough; "answer": &'static str → 2 iconsts.
@@ -109,7 +114,10 @@ fn calls_extern_with_mixed_int_float() {
     let ext_id = fma_like_jit::declare(&mut module);
 
     let wrap_id = define_jit_fn!(
-        &mut module, "wrap", Linkage::Export, fn(i32, f64) -> f64,
+        &mut module,
+        "wrap",
+        Linkage::Export,
+        fn(i32, f64) -> f64,
         |bcx, module, params| fma_like_jit::call(bcx, module, ext_id, params[0], params[1]),
     )
     .unwrap();
@@ -146,7 +154,10 @@ fn embeds_raw_pointer_constant() {
     let ext_id = add_to_base_jit::declare(&mut module);
 
     let wrap_id = define_jit_fn!(
-        &mut module, "wrap", Linkage::Export, fn(i64) -> i64,
+        &mut module,
+        "wrap",
+        Linkage::Export,
+        fn(i64) -> i64,
         |bcx, module, params| {
             let cfg_ptr: *const Config = &CFG;
             add_to_base_jit::call(bcx, module, ext_id, cfg_ptr, params[0])
@@ -179,7 +190,10 @@ fn calls_extern_with_no_args() {
     let ext_id = answer_jit::declare(&mut module);
 
     let wrap_id = define_jit_fn!(
-        &mut module, "wrap", Linkage::Export, fn() -> i64,
+        &mut module,
+        "wrap",
+        Linkage::Export,
+        fn() -> i64,
         |bcx, module, _params| answer_jit::call(bcx, module, ext_id),
     )
     .unwrap();

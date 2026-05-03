@@ -39,7 +39,8 @@ fn macro_auto_injects_extern_c() {
     // The generated symbol_addr should point at an extern "C" function.
     // Cast and call directly — if the abi were Rust this would be UB,
     // but since the macro injected extern "C", this is well-defined.
-    let f: extern "C" fn(i64) -> i64 = unsafe { std::mem::transmute(no_explicit_abi_jit::symbol_addr()) };
+    let f: extern "C" fn(i64) -> i64 =
+        unsafe { std::mem::transmute(no_explicit_abi_jit::symbol_addr()) };
     assert_eq!(f(42), 1042);
 }
 

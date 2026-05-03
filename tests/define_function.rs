@@ -30,7 +30,10 @@ fn body_returning_value_works() {
     let mut module = JITModule::new(jit_builder());
 
     let id = define_jit_fn!(
-        &mut module, "id", Linkage::Export, fn(i64) -> i64,
+        &mut module,
+        "id",
+        Linkage::Export,
+        fn(i64) -> i64,
         |bcx, _module, params| bcx.ins().iadd_imm(params[0], 1),
     )
     .unwrap();
@@ -63,7 +66,10 @@ fn body_returning_unit_works() {
     let ext_id = record_jit::declare(&mut module);
 
     let id = define_jit_fn!(
-        &mut module, "wrap", Linkage::Export, fn(i64),
+        &mut module,
+        "wrap",
+        Linkage::Export,
+        fn(i64),
         |bcx, module, params| {
             // call returns Inst (unit ret), discarded; closure returns ().
             let _ = record_jit::call(bcx, module, ext_id, params[0]);
@@ -72,8 +78,7 @@ fn body_returning_unit_works() {
     .unwrap();
 
     module.finalize_definitions().unwrap();
-    let f: extern "C" fn(i64) =
-        unsafe { std::mem::transmute(module.get_finalized_function(id)) };
+    let f: extern "C" fn(i64) = unsafe { std::mem::transmute(module.get_finalized_function(id)) };
     SINK.store(0, Ordering::SeqCst);
     f(31415);
     assert_eq!(SINK.load(Ordering::SeqCst), 31415);
@@ -89,7 +94,10 @@ fn body_returning_array_works() {
     let mut module = JITModule::new(jit_builder());
 
     let id = define_jit_fn!(
-        &mut module, "swap_and_double", Linkage::Export, fn(i64, i64) -> (i64, i64),
+        &mut module,
+        "swap_and_double",
+        Linkage::Export,
+        fn(i64, i64) -> (i64, i64),
         |bcx, _module, params| {
             // Return (b, a*2).
             let doubled = bcx.ins().imul_imm(params[0], 2);
@@ -118,7 +126,10 @@ fn function_form_matches_macro_form() {
 
     // Macro form.
     let macro_id = define_jit_fn!(
-        &mut module, "macro_form", Linkage::Export, fn(i64) -> i64,
+        &mut module,
+        "macro_form",
+        Linkage::Export,
+        fn(i64) -> i64,
         |bcx, _module, params| bcx.ins().iadd_imm(params[0], 100),
     )
     .unwrap();
@@ -162,7 +173,10 @@ fn body_can_use_module_to_declare_imports_mid_function() {
 
     // Note: we don't pre-`declare` add_three; the closure does it on demand.
     let id = define_jit_fn!(
-        &mut module, "wrap", Linkage::Export, fn(i64, i64, i64) -> i64,
+        &mut module,
+        "wrap",
+        Linkage::Export,
+        fn(i64, i64, i64) -> i64,
         |bcx, module, params| {
             let ext = add_three_jit::declare(module);
             add_three_jit::call(bcx, module, ext, params[2], params[1], params[0])

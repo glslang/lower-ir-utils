@@ -111,12 +111,12 @@ pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
 
     let (call_ret_ty, call_ret_expr) = if return_type.is_some() {
         (
-            quote! { ::cranelift_codegen::ir::Value },
+            quote! { ::lower_ir_utils::__reexport::cranelift_codegen::ir::Value },
             quote! { bcx.inst_results(__inst)[0] },
         )
     } else {
         (
-            quote! { ::cranelift_codegen::ir::Inst },
+            quote! { ::lower_ir_utils::__reexport::cranelift_codegen::ir::Inst },
             quote! { __inst },
         )
     };
@@ -134,13 +134,13 @@ pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 super::#fn_name as *const u8
             }
 
-            pub fn register(jb: &mut ::cranelift_jit::JITBuilder) {
+            pub fn register(jb: &mut ::lower_ir_utils::__reexport::cranelift_jit::JITBuilder) {
                 jb.symbol(NAME, symbol_addr());
             }
 
-            pub fn signature<M: ::cranelift_module::Module>(
+            pub fn signature<M: ::lower_ir_utils::__reexport::cranelift_module::Module>(
                 module: &M,
-            ) -> ::cranelift_codegen::ir::Signature {
+            ) -> ::lower_ir_utils::__reexport::cranelift_codegen::ir::Signature {
                 let mut sig = module.make_signature();
                 let ptr_ty = module.target_config().pointer_type();
                 #(#sig_param_pushes)*
@@ -148,30 +148,30 @@ pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 sig
             }
 
-            pub fn declare<M: ::cranelift_module::Module>(
+            pub fn declare<M: ::lower_ir_utils::__reexport::cranelift_module::Module>(
                 module: &mut M,
-            ) -> ::cranelift_module::FuncId {
+            ) -> ::lower_ir_utils::__reexport::cranelift_module::FuncId {
                 let sig = signature(module);
                 module
-                    .declare_function(NAME, ::cranelift_module::Linkage::Import, &sig)
+                    .declare_function(NAME, ::lower_ir_utils::__reexport::cranelift_module::Linkage::Import, &sig)
                     .expect("declare_function failed")
             }
 
             #[allow(clippy::too_many_arguments)]
             pub fn call<
-                M: ::cranelift_module::Module,
+                M: ::lower_ir_utils::__reexport::cranelift_module::Module,
                 #(#arg_generics: ::lower_ir_utils::JitArg,)*
             >(
-                bcx: &mut ::cranelift_frontend::FunctionBuilder<'_>,
+                bcx: &mut ::lower_ir_utils::__reexport::cranelift_frontend::FunctionBuilder<'_>,
                 module: &mut M,
-                id: ::cranelift_module::FuncId,
+                id: ::lower_ir_utils::__reexport::cranelift_module::FuncId,
                 #(#arg_idents: #arg_generics,)*
             ) -> #call_ret_ty {
-                use ::cranelift_codegen::ir::InstBuilder as _;
+                use ::lower_ir_utils::__reexport::cranelift_codegen::ir::InstBuilder as _;
                 let ptr_ty = module.target_config().pointer_type();
                 let local = module.declare_func_in_func(id, bcx.func);
                 let mut args_buf: ::lower_ir_utils::__reexport::smallvec::SmallVec<
-                    [::cranelift_codegen::ir::Value; 8]
+                    [::lower_ir_utils::__reexport::cranelift_codegen::ir::Value; 8]
                 > = ::lower_ir_utils::__reexport::smallvec::SmallVec::new();
                 #(#arg_lowers)*
                 let __inst = bcx.ins().call(local, &args_buf);

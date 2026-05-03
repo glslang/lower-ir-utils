@@ -14,6 +14,8 @@ pub use lower_ir_utils_macros::jit_export;
 #[doc(hidden)]
 pub mod __reexport {
     pub use cranelift_codegen;
+    pub use cranelift_frontend;
+    pub use cranelift_jit;
     pub use cranelift_module;
     pub use smallvec;
 }

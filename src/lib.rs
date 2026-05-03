@@ -7,6 +7,7 @@ pub mod abi;
 mod macros;
 
 pub use abi::{JitArg, JitParam};
+pub use lower_ir_utils_macros::jit_export;
 
 #[doc(hidden)]
 pub mod __reexport {

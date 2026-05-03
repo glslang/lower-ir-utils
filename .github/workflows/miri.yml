@@ -1,0 +1,31 @@
+name: Miri
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Miri can't execute Cranelift's JIT-compiled code (FFI / generated machine
+  # code), so restrict it to the proc-macro crate which is pure Rust.
+  MIRIFLAGS: -Zmiri-strict-provenance
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  miri:
+    name: miri (macros)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@nextest
+      - run: cargo miri setup
+      - name: Run miri on macros crate
+        run: cargo miri nextest run -p lower-ir-utils-macros --all-targets

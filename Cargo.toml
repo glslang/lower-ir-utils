@@ -6,6 +6,13 @@ exclude = ["tests/external_consumer"]
 name = "lower-ir-utils"
 version = "0.1.0"
 edition = "2021"
+authors = ["Gonçalo Carvalho"]
+description = "Helpers for mapping Rust types to Cranelift JIT signatures, lowering call arguments, and reducing module boilerplate."
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/glslang/lower-ir-utils"
+keywords = ["cranelift", "jit", "codegen", "ir"]
+categories = ["development-tools", "compilers"]
 
 [dependencies]
 cranelift = "0.131"
@@ -14,7 +21,7 @@ cranelift-module = "0.131"
 cranelift-codegen = "0.131"
 cranelift-frontend = "0.131"
 smallvec = "1"
-lower-ir-utils-macros = { path = "macros" }
+lower-ir-utils-macros = { path = "macros", version = "0.1.0" }
 
 [dev-dependencies]
 cranelift-native = "0.131"

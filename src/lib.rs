@@ -4,9 +4,11 @@
 //! plus the [`jit_signature!`] and [`jit_call!`] macros that compose them.
 
 pub mod abi;
+pub mod builder;
 mod macros;
 
 pub use abi::{JitArg, JitParam};
+pub use builder::{define_function, IntoReturns};
 pub use lower_ir_utils_macros::jit_export;
 
 #[doc(hidden)]

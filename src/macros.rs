@@ -24,6 +24,40 @@ macro_rules! jit_signature {
     }};
 }
 
+/// Declare and define a Cranelift function in one call, with the signature
+/// expressed as Rust types.
+///
+/// Combines [`jit_signature!`] with [`crate::define_function`]: the signature
+/// is derived from the `fn(T1, T2) -> R` shape, then the body closure is
+/// invoked with `&mut FunctionBuilder`, `&mut Module`, and the entry-block
+/// parameter slice. Whatever the closure returns is funneled through
+/// [`crate::IntoReturns`] and emitted as `return_`.
+///
+/// # Example
+///
+/// ```ignore
+/// let id = define_jit_fn!(
+///     &mut module, "wrap", Linkage::Export, fn(i64) -> i64,
+///     |bcx, module, params| {
+///         double_i64_jit::call(bcx, module, ext_id, params[0])
+///     },
+/// )?;
+/// ```
+#[macro_export]
+macro_rules! define_jit_fn {
+    (
+        $module:expr,
+        $name:expr,
+        $linkage:expr,
+        fn($($pty:ty),* $(,)?) $(-> $ret:ty)?,
+        $body:expr $(,)?
+    ) => {{
+        let __module: &mut _ = $module;
+        let __sig = $crate::jit_signature!(&*__module; fn($($pty),*) $(-> $ret)?);
+        $crate::define_function(__module, $name, $linkage, __sig, $body)
+    }};
+}
+
 /// Emit a Cranelift `call` instruction, lowering each Rust argument via [`JitArg`].
 ///
 /// Each argument expression must implement [`JitArg`]. Already-lowered IR `Value`s

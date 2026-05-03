@@ -1,21 +1,15 @@
-//! End-to-end JIT tests rewritten to use the `#[jit_export]` proc-macro.
-//!
-//! Compare the line counts to git history to see the boilerplate reduction:
-//! every test now does symbol registration + signature build + import declare
-//! in two lines (`foo_jit::register` + `foo_jit::declare`), and replaces the
-//! `declare_func_in_func` + `jit_call!` pair with a single `foo_jit::call`.
+//! End-to-end JIT tests using the full helper stack: `#[jit_export]` for the
+//! callee + `define_jit_fn!` for the wrapper. The block-creation, return, and
+//! finalize boilerplate has all moved into `define_function`.
 
 use std::collections::HashMap;
 
-use cranelift_codegen::ir::{InstBuilder, UserFuncName};
 use cranelift_codegen::settings::{self, Configurable};
-use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{default_libcall_names, Linkage, Module};
 
-use lower_ir_utils::{jit_export, jit_signature};
+use lower_ir_utils::{define_jit_fn, jit_export};
 
-/// Build a fresh `JITBuilder` with no host symbols registered.
 fn jit_builder() -> JITBuilder {
     let mut flag_builder = settings::builder();
     flag_builder.set("use_colocated_libcalls", "false").unwrap();
@@ -43,31 +37,12 @@ fn calls_extern_taking_i64() {
     let mut module = JITModule::new(jb);
     let ext_id = double_i64_jit::declare(&mut module);
 
-    let wrap_sig = jit_signature!(&module; fn(i64) -> i64);
-    let wrap_id = module
-        .declare_function("wrap", Linkage::Export, &wrap_sig)
-        .unwrap();
+    let wrap_id = define_jit_fn!(
+        &mut module, "wrap", Linkage::Export, fn(i64) -> i64,
+        |bcx, module, params| double_i64_jit::call(bcx, module, ext_id, params[0]),
+    )
+    .unwrap();
 
-    let mut ctx = module.make_context();
-    ctx.func.signature = wrap_sig;
-    ctx.func.name = UserFuncName::user(0, wrap_id.as_u32());
-
-    let mut bcx_ctx = FunctionBuilderContext::new();
-    {
-        let mut bcx = FunctionBuilder::new(&mut ctx.func, &mut bcx_ctx);
-        let entry = bcx.create_block();
-        bcx.append_block_params_for_function_params(entry);
-        bcx.switch_to_block(entry);
-        bcx.seal_block(entry);
-        let x = bcx.block_params(entry)[0];
-
-        let ret = double_i64_jit::call(&mut bcx, &mut module, ext_id, x);
-        bcx.ins().return_(&[ret]);
-        bcx.finalize();
-    }
-
-    module.define_function(wrap_id, &mut ctx).unwrap();
-    module.clear_context(&mut ctx);
     module.finalize_definitions().unwrap();
 
     let f: extern "C" fn(i64) -> i64 =
@@ -80,11 +55,6 @@ fn calls_extern_taking_i64() {
 // Test 2: (*const HashMap, &str) -> i64. Mixed Value + &'static str literal.
 // ------------------------------------------------------------------
 
-// On x86_64 SystemV the ABI of `extern "C" fn(&str)` matches `(*const u8, usize)`,
-// so we can take an idiomatic `&str` in the Rust signature. The lint warning on
-// `extern "C"` + `&str` is suppressed by the macro for the user's convenience —
-// on platforms with different aggregate-passing rules (e.g. Win64) prefer the
-// flat `(*const u8, usize)` form.
 #[jit_export]
 fn lookup(map_ptr: *const HashMap<String, i64>, key: &str) -> i64 {
     let map = unsafe { &*map_ptr };
@@ -98,32 +68,16 @@ fn calls_extern_with_map_pointer_and_static_str() {
     let mut module = JITModule::new(jb);
     let ext_id = lookup_jit::declare(&mut module);
 
-    let wrap_sig = jit_signature!(&module; fn(*const HashMap<String, i64>) -> i64);
-    let wrap_id = module
-        .declare_function("wrap", Linkage::Export, &wrap_sig)
-        .unwrap();
+    let wrap_id = define_jit_fn!(
+        &mut module, "wrap", Linkage::Export,
+        fn(*const HashMap<String, i64>) -> i64,
+        |bcx, module, params| {
+            // params[0]: Value passthrough; "answer": &'static str → 2 iconsts.
+            lookup_jit::call(bcx, module, ext_id, params[0], "answer")
+        },
+    )
+    .unwrap();
 
-    let mut ctx = module.make_context();
-    ctx.func.signature = wrap_sig;
-    ctx.func.name = UserFuncName::user(0, wrap_id.as_u32());
-
-    let mut bcx_ctx = FunctionBuilderContext::new();
-    {
-        let mut bcx = FunctionBuilder::new(&mut ctx.func, &mut bcx_ctx);
-        let entry = bcx.create_block();
-        bcx.append_block_params_for_function_params(entry);
-        bcx.switch_to_block(entry);
-        bcx.seal_block(entry);
-        let map_v = bcx.block_params(entry)[0];
-
-        // map_v: Value passthrough; "answer": &'static str lowered as 2 iconsts.
-        let ret = lookup_jit::call(&mut bcx, &mut module, ext_id, map_v, "answer");
-        bcx.ins().return_(&[ret]);
-        bcx.finalize();
-    }
-
-    module.define_function(wrap_id, &mut ctx).unwrap();
-    module.clear_context(&mut ctx);
     module.finalize_definitions().unwrap();
 
     let f: extern "C" fn(*const HashMap<String, i64>) -> i64 =
@@ -154,32 +108,12 @@ fn calls_extern_with_mixed_int_float() {
     let mut module = JITModule::new(jb);
     let ext_id = fma_like_jit::declare(&mut module);
 
-    let wrap_sig = jit_signature!(&module; fn(i32, f64) -> f64);
-    let wrap_id = module
-        .declare_function("wrap", Linkage::Export, &wrap_sig)
-        .unwrap();
+    let wrap_id = define_jit_fn!(
+        &mut module, "wrap", Linkage::Export, fn(i32, f64) -> f64,
+        |bcx, module, params| fma_like_jit::call(bcx, module, ext_id, params[0], params[1]),
+    )
+    .unwrap();
 
-    let mut ctx = module.make_context();
-    ctx.func.signature = wrap_sig;
-    ctx.func.name = UserFuncName::user(0, wrap_id.as_u32());
-
-    let mut bcx_ctx = FunctionBuilderContext::new();
-    {
-        let mut bcx = FunctionBuilder::new(&mut ctx.func, &mut bcx_ctx);
-        let entry = bcx.create_block();
-        bcx.append_block_params_for_function_params(entry);
-        bcx.switch_to_block(entry);
-        bcx.seal_block(entry);
-        let n = bcx.block_params(entry)[0];
-        let x = bcx.block_params(entry)[1];
-
-        let ret = fma_like_jit::call(&mut bcx, &mut module, ext_id, n, x);
-        bcx.ins().return_(&[ret]);
-        bcx.finalize();
-    }
-
-    module.define_function(wrap_id, &mut ctx).unwrap();
-    module.clear_context(&mut ctx);
     module.finalize_definitions().unwrap();
 
     let f: extern "C" fn(i32, f64) -> f64 =
@@ -211,32 +145,15 @@ fn embeds_raw_pointer_constant() {
     let mut module = JITModule::new(jb);
     let ext_id = add_to_base_jit::declare(&mut module);
 
-    let wrap_sig = jit_signature!(&module; fn(i64) -> i64);
-    let wrap_id = module
-        .declare_function("wrap", Linkage::Export, &wrap_sig)
-        .unwrap();
+    let wrap_id = define_jit_fn!(
+        &mut module, "wrap", Linkage::Export, fn(i64) -> i64,
+        |bcx, module, params| {
+            let cfg_ptr: *const Config = &CFG;
+            add_to_base_jit::call(bcx, module, ext_id, cfg_ptr, params[0])
+        },
+    )
+    .unwrap();
 
-    let mut ctx = module.make_context();
-    ctx.func.signature = wrap_sig;
-    ctx.func.name = UserFuncName::user(0, wrap_id.as_u32());
-
-    let mut bcx_ctx = FunctionBuilderContext::new();
-    {
-        let mut bcx = FunctionBuilder::new(&mut ctx.func, &mut bcx_ctx);
-        let entry = bcx.create_block();
-        bcx.append_block_params_for_function_params(entry);
-        bcx.switch_to_block(entry);
-        bcx.seal_block(entry);
-        let x = bcx.block_params(entry)[0];
-
-        let cfg_ptr: *const Config = &CFG;
-        let ret = add_to_base_jit::call(&mut bcx, &mut module, ext_id, cfg_ptr, x);
-        bcx.ins().return_(&[ret]);
-        bcx.finalize();
-    }
-
-    module.define_function(wrap_id, &mut ctx).unwrap();
-    module.clear_context(&mut ctx);
     module.finalize_definitions().unwrap();
 
     let f: extern "C" fn(i64) -> i64 =
@@ -261,30 +178,12 @@ fn calls_extern_with_no_args() {
     let mut module = JITModule::new(jb);
     let ext_id = answer_jit::declare(&mut module);
 
-    let wrap_sig = jit_signature!(&module; fn() -> i64);
-    let wrap_id = module
-        .declare_function("wrap", Linkage::Export, &wrap_sig)
-        .unwrap();
+    let wrap_id = define_jit_fn!(
+        &mut module, "wrap", Linkage::Export, fn() -> i64,
+        |bcx, module, _params| answer_jit::call(bcx, module, ext_id),
+    )
+    .unwrap();
 
-    let mut ctx = module.make_context();
-    ctx.func.signature = wrap_sig;
-    ctx.func.name = UserFuncName::user(0, wrap_id.as_u32());
-
-    let mut bcx_ctx = FunctionBuilderContext::new();
-    {
-        let mut bcx = FunctionBuilder::new(&mut ctx.func, &mut bcx_ctx);
-        let entry = bcx.create_block();
-        bcx.append_block_params_for_function_params(entry);
-        bcx.switch_to_block(entry);
-        bcx.seal_block(entry);
-
-        let ret = answer_jit::call(&mut bcx, &mut module, ext_id);
-        bcx.ins().return_(&[ret]);
-        bcx.finalize();
-    }
-
-    module.define_function(wrap_id, &mut ctx).unwrap();
-    module.clear_context(&mut ctx);
     module.finalize_definitions().unwrap();
 
     let f: extern "C" fn() -> i64 =

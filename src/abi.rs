@@ -127,6 +127,24 @@ impl<T: Sized> JitParam for &mut [T] {
     }
 }
 
+// Tuple impls let users express multi-value returns (or grouped params) as
+// `fn(...) -> (T1, T2)`. Each element contributes its own params in order.
+macro_rules! impl_jit_param_tuple {
+    ($($t:ident),+) => {
+        impl<$($t: JitParam),+> JitParam for ($($t,)+) {
+            fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type) {
+                $( <$t as JitParam>::push_params(out, ptr_ty); )+
+            }
+        }
+    };
+}
+
+impl_jit_param_tuple!(T1, T2);
+impl_jit_param_tuple!(T1, T2, T3);
+impl_jit_param_tuple!(T1, T2, T3, T4);
+impl_jit_param_tuple!(T1, T2, T3, T4, T5);
+impl_jit_param_tuple!(T1, T2, T3, T4, T5, T6);
+
 // ---------- JitArg impls ----------
 
 impl JitArg for Value {

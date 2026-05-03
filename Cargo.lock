@@ -308,7 +308,17 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "cranelift-native",
+ "lower-ir-utils-macros",
  "smallvec",
+]
+
+[[package]]
+name = "lower-ir-utils-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

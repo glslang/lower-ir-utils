@@ -1,0 +1,22 @@
+# Standalone crate (not part of the parent workspace) used to verify that
+# `lower-ir-utils` works for external consumers — i.e. the proc-macro's
+# generated paths resolve when the user crate does NOT directly depend on
+# cranelift_codegen / cranelift_module / cranelift_jit / cranelift_frontend
+# / smallvec. Only `lower-ir-utils` is under [dependencies]; cranelift-native
+# appears as a dev-dep solely to construct the host ISA for the runtime test
+# (the proc-macro itself never references it).
+[package]
+name = "external_consumer"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Self-contained workspace root so cargo doesn't try to resolve us against
+# the parent's [workspace] table.
+[workspace]
+
+[dependencies]
+lower-ir-utils = { path = "../.." }
+
+[dev-dependencies]
+cranelift-native = "0.131"

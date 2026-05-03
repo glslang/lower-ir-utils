@@ -1,5 +1,6 @@
 [workspace]
 members = ["macros"]
+exclude = ["tests/external_consumer"]
 
 [package]
 name = "lower-ir-utils"

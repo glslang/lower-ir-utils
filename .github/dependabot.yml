@@ -1,0 +1,33 @@
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      cranelift:
+        patterns:
+          - "cranelift*"
+      proc-macro:
+        patterns:
+          - "syn"
+          - "quote"
+          - "proc-macro2"
+
+  - package-ecosystem: cargo
+    directory: "/macros"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: cargo
+    directory: "/tests/external_consumer"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly

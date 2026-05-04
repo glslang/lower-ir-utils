@@ -14,6 +14,9 @@ repository = "https://github.com/glslang/lower-ir-utils"
 keywords = ["cranelift", "jit", "codegen", "ir"]
 categories = ["development-tools", "compilers"]
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 cranelift = "0.131"
 cranelift-jit = "0.131"

@@ -1,5 +1,12 @@
 # lower-ir-utils
 
+[![CI](https://github.com/glslang/lower-ir-utils/actions/workflows/ci.yml/badge.svg)](https://github.com/glslang/lower-ir-utils/actions/workflows/ci.yml)
+[![Miri](https://github.com/glslang/lower-ir-utils/actions/workflows/miri.yml/badge.svg)](https://github.com/glslang/lower-ir-utils/actions/workflows/miri.yml)
+[![codecov](https://codecov.io/gh/glslang/lower-ir-utils/branch/main/graph/badge.svg)](https://codecov.io/gh/glslang/lower-ir-utils)
+[![crates.io](https://img.shields.io/crates/v/lower-ir-utils.svg)](https://crates.io/crates/lower-ir-utils)
+[![docs.rs](https://img.shields.io/docsrs/lower-ir-utils)](https://docs.rs/lower-ir-utils)
+[![License: MIT](https://img.shields.io/crates/l/lower-ir-utils.svg)](LICENSE)
+
 Helpers for bridging Rust types to [Cranelift](https://cranelift.dev/) JIT
 signatures and call sites. The crate trims the boilerplate of declaring
 external functions, building `Signature`s, and lowering arguments, while still

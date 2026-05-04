@@ -10,6 +10,9 @@ repository = "https://github.com/glslang/lower-ir-utils"
 keywords = ["cranelift", "jit", "codegen", "macro", "jit_export"]
 categories = ["development-tools"]
 
+[package.metadata.docs.rs]
+all-features = true
+
 [lib]
 proc-macro = true
 

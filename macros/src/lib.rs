@@ -1,4 +1,7 @@
-//! Proc-macros for [`lower-ir-utils`](../lower_ir_utils/index.html).
+//! Procedural macros for [lower-ir-utils](https://docs.rs/lower-ir-utils).
+//!
+//! Prefer depending on **`lower-ir-utils`** for the public API (`#[jit_export]` is
+//! re-exported there). Match this crate's version to your `lower-ir-utils` dependency.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -36,6 +39,20 @@ use syn::{parse_macro_input, FnArg, ItemFn, PatType, ReturnType, Type};
 ///
 /// Each `A_i: JitArg`, so users can pass either an already-lowered IR `Value`
 /// or a Rust constant (`&'static str`, `i64`, `*const T`, ...).
+///
+/// # Panics
+///
+/// The generated `declare` helper unwraps `declare_function` with `expect`. It will
+/// panic if the symbol is already declared under the same name or if the module rejects
+/// the declaration for another reason (use the module API directly if you need non-panicking error handling).
+///
+/// # Return value of `call`
+///
+/// When the annotated function returns a Rust value, `call` returns the callee's first
+/// SSA result (`cranelift_codegen::ir::Value`, via `inst_results`).
+/// When the return type is unit (no return / `-> ()`), `call` returns the
+/// `cranelift_codegen::ir::Inst` from the emitted `call` instead; you can discard it for
+/// side-effect-only calls or keep it if you need the instruction handle.
 #[proc_macro_attribute]
 pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(item as ItemFn);

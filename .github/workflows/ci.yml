@@ -58,9 +58,10 @@ jobs:
     name: rustdoc
     runs-on: ubuntu-latest
     env:
-      RUSTDOCFLAGS: -D warnings
+      RUSTDOCFLAGS: -D warnings -D rustdoc::broken_intra_doc_links
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo doc --workspace --no-deps
+      - name: Build documentation
+        run: cargo doc --workspace --no-deps

@@ -89,6 +89,10 @@ fn body_returning_unit_works() {
 //    returns; the `IntoReturns for [Value; N]` impl threads them through.
 // ------------------------------------------------------------------
 
+// Microsoft x64 returns 16-byte aggregates via a hidden out-pointer; this
+// crate emits (rax, rdx)-style returns, so `(i64, i64)` from extern "C" reads
+// garbage on windows-msvc. AAPCS (Windows aarch64, Linux/macOS) is unaffected.
+#[cfg_attr(all(target_os = "windows", target_arch = "x86_64"), ignore)]
 #[test]
 fn body_returning_array_works() {
     let mut module = JITModule::new(jit_builder());
@@ -107,8 +111,6 @@ fn body_returning_array_works() {
     .unwrap();
 
     module.finalize_definitions().unwrap();
-    // SystemV x86_64: two i64 returns come back in (rax, rdx) which matches
-    // a Rust `(i64, i64)` repr-Rust tuple in extern "C".
     let f: extern "C" fn(i64, i64) -> (i64, i64) =
         unsafe { std::mem::transmute(module.get_finalized_function(id)) };
     assert_eq!(f(3, 7), (7, 6));

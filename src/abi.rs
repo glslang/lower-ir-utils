@@ -9,6 +9,16 @@
 //! while others are constants embedded into the IR. The macros do not enforce a
 //! correspondence between the signature types and the argument expressions; that
 //! is the caller's responsibility, exactly as it would be for `bcx.ins().call`.
+//!
+//! # Platform support
+//!
+//! The fat-pointer impls (`&str`, `&[T]`, `&mut [T]`) and the tuple `JitParam`
+//! impls assume the System V x86_64 / AAPCS rule that 16-byte aggregates ride
+//! in two consecutive registers. The Microsoft x64 ABI passes (and returns)
+//! them by hidden pointer instead, so on `x86_64-pc-windows-*` these lowerings
+//! produce a layout that does not match Rust's `extern "C"`. Tests covering
+//! those paths are gated off on Windows x86_64; Windows aarch64 (AAPCS) and
+//! Linux/macOS on either arch are unaffected.
 
 use cranelift_codegen::ir::{types, AbiParam, InstBuilder, Type, Value};
 use cranelift_frontend::FunctionBuilder;

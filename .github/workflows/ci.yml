@@ -41,7 +41,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os:
+          - ubuntu-latest      # x86_64 Linux
+          - ubuntu-24.04-arm   # aarch64 Linux
+          - macos-latest       # aarch64 macOS (Apple Silicon)
+          - windows-latest     # x86_64 Windows
+          - windows-11-arm     # aarch64 Windows
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable

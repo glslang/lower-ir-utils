@@ -13,6 +13,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+permissions:
+  contents: read
+
 jobs:
   fmt:
     name: rustfmt
@@ -27,6 +30,9 @@ jobs:
   clippy:
     name: clippy
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -38,6 +44,9 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      actions: write
     strategy:
       fail-fast: false
       matrix:
@@ -62,6 +71,9 @@ jobs:
   docs:
     name: rustdoc
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     env:
       RUSTDOCFLAGS: -D warnings -D rustdoc::broken_intra_doc_links
     steps:

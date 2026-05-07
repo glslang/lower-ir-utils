@@ -13,10 +13,16 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+permissions:
+  contents: read
+
 jobs:
   miri:
     name: miri (abi_unit)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     # Cranelift's JIT path can't execute under Miri (FFI + generated machine
     # code). The `abi_unit` integration test only exercises the type-level
     # `JitParam` mapping with no JIT invocation, so we scope Miri to it.

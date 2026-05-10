@@ -161,9 +161,11 @@ fn mix(prefix_len: i64, key: &str) -> i64 {
 }
 
 // ------------------------------------------------------------------
-// 6. Tuple return: `#[jit_export] fn ... -> (T1, T2)` makes `call` return
-//    `[Value; 2]` so all SSA results are usable. Earlier shape silently
-//    dropped everything past the first result.
+// 6. Tuple return: `#[jit_export] fn ... -> (T1, ..., TN)` makes `call`
+//    return the `Inst`, since the proc-macro can't statically know how many
+//    AbiParams JitParam will push (e.g. `&str` is 2). Caller pulls the
+//    actual results via `bcx.inst_results(inst)`. Earlier behavior silently
+//    dropped all but the first result.
 // ------------------------------------------------------------------
 
 #[jit_export]
@@ -176,7 +178,7 @@ fn divmod(a: i64, b: i64) -> (i64, i64) {
 // garbage on windows-msvc. AAPCS (Windows aarch64, Linux/macOS) is unaffected.
 #[cfg_attr(all(target_os = "windows", target_arch = "x86_64"), ignore)]
 #[test]
-fn tuple_return_call_yields_array() {
+fn tuple_return_call_yields_inst_with_all_results() {
     let mut jb = jit_builder();
     divmod_jit::register(&mut jb);
     let mut module = JITModule::new(jb);
@@ -205,10 +207,14 @@ fn tuple_return_call_yields_array() {
         let a = bcx.block_params(entry)[0];
         let b = bcx.block_params(entry)[1];
 
-        // For tuple-return callees, `call` yields `[Value; N]`.
-        let arr: [cranelift_codegen::ir::Value; 2] =
+        // For tuple-return callees, `call` yields the `Inst`; we extract all
+        // results ourselves. This stays correct regardless of how `JitParam`
+        // expands the tuple's elements.
+        let inst: cranelift_codegen::ir::Inst =
             divmod_jit::call(&mut bcx, &mut module, ext_id, a, b);
-        bcx.ins().return_(&arr);
+        let results: Vec<_> = bcx.inst_results(inst).to_vec();
+        assert_eq!(results.len(), 2);
+        bcx.ins().return_(&results);
         bcx.finalize();
     }
 
@@ -220,6 +226,29 @@ fn tuple_return_call_yields_array() {
         unsafe { std::mem::transmute(module.get_finalized_function(wrap_id)) };
     assert_eq!(f(17, 5), (3, 2));
     assert_eq!(f(20, 4), (5, 0));
+}
+
+// ------------------------------------------------------------------
+// 6b. Regression for the fat-pointer-in-tuple case: a tuple element with
+//     a multi-AbiParam JitParam impl (here, `&'static str`) means tuple
+//     arity (2) and ABI return count (3) diverge. The macro must not
+//     pretend to know the arity statically — `call` should yield the
+//     `Inst` so `inst_results` gives all three Values.
+// ------------------------------------------------------------------
+
+#[jit_export]
+fn str_and_int() -> (&'static str, i64) {
+    ("hi", 7)
+}
+
+#[test]
+fn tuple_with_fat_pointer_return_signature_has_three_lanes() {
+    let mut jb = jit_builder();
+    str_and_int_jit::register(&mut jb);
+    let module = JITModule::new(jb);
+
+    // (&str, i64) → (ptr, len, i64) in the ABI.
+    assert_eq!(str_and_int_jit::signature(&module).returns.len(), 3);
 }
 
 // ------------------------------------------------------------------

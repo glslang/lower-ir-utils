@@ -84,8 +84,12 @@ use syn::{parse_macro_input, FnArg, ItemFn, PatType, ReturnType, Type};
 ///   instruction handle, useful for side-effect-only calls.
 /// - Single non-unit return (e.g. `-> i64`, `-> &str`): returns
 ///   `cranelift_codegen::ir::Value`, the callee's first SSA result.
-/// - Tuple return `(T1, ..., TN)` with `N >= 1`: returns `[Value; N]`
-///   containing every SSA result in declaration order.
+/// - Tuple return `(T1, ..., TN)`: returns `cranelift_codegen::ir::Inst`. Use
+///   `bcx.inst_results(inst)` to get all SSA results in declaration order. The
+///   number of results is set by `JitParam::push_params` and may differ from
+///   the tuple's element count — fat-pointer types (`&str`, `&[T]`) and
+///   nested tuples each push more than one `AbiParam`, so the macro cannot
+///   give you a fixed-arity array shape that's correct for every composition.
 #[proc_macro_attribute]
 pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(item as ItemFn);
@@ -118,19 +122,25 @@ pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
         })
         .collect();
 
-    // Three return shapes: unit (no return values), a single value, or an
-    // N-tuple (one Value per element). Knowing the arity statically lets `call`
-    // return `[Value; N]` instead of dropping all but the first result.
+    // Three return shapes:
+    //   - None: unit / no return — `call` yields the `Inst`.
+    //   - Single: one non-tuple, non-unit return — `call` yields a single `Value`.
+    //   - Multi: a tuple return — `call` yields the `Inst`, because the proc-macro
+    //     can only see syntactic arity (tuple-element count) while the actual
+    //     ABI-result count is decided by `JitParam` (e.g. `&str`/`&[T]` push two
+    //     AbiParams, nested tuples sum their elements). Returning the `Inst`
+    //     lets the caller pull the real values via `bcx.inst_results(inst)` —
+    //     correct for any composition.
     enum ReturnShape<'a> {
         Single(&'a Type),
-        Tuple(usize, &'a Type),
+        Multi(&'a Type),
     }
 
     let return_shape: Option<ReturnShape> = match &input.sig.output {
         ReturnType::Default => None,
         ReturnType::Type(_, ty) => match ty.as_ref() {
             Type::Tuple(t) if t.elems.is_empty() => None,
-            Type::Tuple(t) => Some(ReturnShape::Tuple(t.elems.len(), ty.as_ref())),
+            Type::Tuple(_) => Some(ReturnShape::Multi(ty.as_ref())),
             other => Some(ReturnShape::Single(other)),
         },
     };
@@ -152,7 +162,7 @@ pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
         .collect();
 
     let sig_return_pushes = match &return_shape {
-        Some(ReturnShape::Single(rt)) | Some(ReturnShape::Tuple(_, rt)) => quote! {
+        Some(ReturnShape::Single(rt)) | Some(ReturnShape::Multi(rt)) => quote! {
             <#rt as ::lower_ir_utils::JitParam>::push_params(&mut sig.returns, ptr_ty);
         },
         None => quote! {},
@@ -168,7 +178,7 @@ pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
         .collect();
 
     let (call_ret_ty, call_ret_expr) = match &return_shape {
-        None => (
+        None | Some(ReturnShape::Multi(_)) => (
             quote! { ::lower_ir_utils::__reexport::cranelift_codegen::ir::Inst },
             quote! { __inst },
         ),
@@ -176,17 +186,6 @@ pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
             quote! { ::lower_ir_utils::__reexport::cranelift_codegen::ir::Value },
             quote! { bcx.inst_results(__inst)[0] },
         ),
-        Some(ReturnShape::Tuple(n, _)) => {
-            let n_lit = *n;
-            let indices: Vec<usize> = (0..n_lit).collect();
-            (
-                quote! { [::lower_ir_utils::__reexport::cranelift_codegen::ir::Value; #n_lit] },
-                quote! {{
-                    let __results = bcx.inst_results(__inst);
-                    [ #( __results[#indices] ),* ]
-                }},
-            )
-        }
     };
 
     let expanded = quote! {

@@ -319,7 +319,10 @@ fn try_declare_surfaces_signature_conflict() {
         .unwrap();
 
     let result = try_declare_target_jit::try_declare(&mut module);
-    assert!(result.is_err(), "expected declare to fail on signature conflict");
+    assert!(
+        result.is_err(),
+        "expected declare to fail on signature conflict"
+    );
 }
 
 // Microsoft x64 passes 16-byte aggregates (`&str`) by hidden pointer; this

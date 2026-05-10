@@ -160,6 +160,168 @@ fn mix(prefix_len: i64, key: &str) -> i64 {
     prefix_len + key.len() as i64
 }
 
+// ------------------------------------------------------------------
+// 6. Tuple return: `#[jit_export] fn ... -> (T1, T2)` makes `call` return
+//    `[Value; 2]` so all SSA results are usable. Earlier shape silently
+//    dropped everything past the first result.
+// ------------------------------------------------------------------
+
+#[jit_export]
+fn divmod(a: i64, b: i64) -> (i64, i64) {
+    (a / b, a % b)
+}
+
+// Microsoft x64 returns 16-byte aggregates via a hidden out-pointer; this
+// crate emits (rax, rdx)-style returns, so `(i64, i64)` from extern "C" reads
+// garbage on windows-msvc. AAPCS (Windows aarch64, Linux/macOS) is unaffected.
+#[cfg_attr(all(target_os = "windows", target_arch = "x86_64"), ignore)]
+#[test]
+fn tuple_return_call_yields_array() {
+    let mut jb = jit_builder();
+    divmod_jit::register(&mut jb);
+    let mut module = JITModule::new(jb);
+
+    // Signature reports two returns.
+    assert_eq!(divmod_jit::signature(&module).returns.len(), 2);
+
+    let ext_id = divmod_jit::declare(&mut module);
+
+    let wrap_sig = jit_signature!(&module; fn(i64, i64) -> (i64, i64));
+    let wrap_id = module
+        .declare_function("wrap_divmod", Linkage::Export, &wrap_sig)
+        .unwrap();
+
+    let mut ctx = module.make_context();
+    ctx.func.signature = wrap_sig;
+    ctx.func.name = UserFuncName::user(0, wrap_id.as_u32());
+
+    let mut bcx_ctx = FunctionBuilderContext::new();
+    {
+        let mut bcx = FunctionBuilder::new(&mut ctx.func, &mut bcx_ctx);
+        let entry = bcx.create_block();
+        bcx.append_block_params_for_function_params(entry);
+        bcx.switch_to_block(entry);
+        bcx.seal_block(entry);
+        let a = bcx.block_params(entry)[0];
+        let b = bcx.block_params(entry)[1];
+
+        // For tuple-return callees, `call` yields `[Value; N]`.
+        let arr: [cranelift_codegen::ir::Value; 2] =
+            divmod_jit::call(&mut bcx, &mut module, ext_id, a, b);
+        bcx.ins().return_(&arr);
+        bcx.finalize();
+    }
+
+    module.define_function(wrap_id, &mut ctx).unwrap();
+    module.clear_context(&mut ctx);
+    module.finalize_definitions().unwrap();
+
+    let f: extern "C" fn(i64, i64) -> (i64, i64) =
+        unsafe { std::mem::transmute(module.get_finalized_function(wrap_id)) };
+    assert_eq!(f(17, 5), (3, 2));
+    assert_eq!(f(20, 4), (5, 0));
+}
+
+// ------------------------------------------------------------------
+// 7. `&'static T` is a `JitArg`: the host address is embedded as an IR
+//    constant just like a raw pointer, but with a lifetime bound that
+//    rules out stack/heap pointers.
+// ------------------------------------------------------------------
+
+static THE_NUMBER: i64 = 99;
+
+#[jit_export]
+fn deref_i64(p: &i64) -> i64 {
+    *p
+}
+
+#[test]
+fn static_ref_lowers_as_immediate_pointer() {
+    let mut jb = jit_builder();
+    deref_i64_jit::register(&mut jb);
+    let mut module = JITModule::new(jb);
+    let ext_id = deref_i64_jit::declare(&mut module);
+
+    let wrap_sig = jit_signature!(&module; fn() -> i64);
+    let wrap_id = module
+        .declare_function("wrap_deref", Linkage::Export, &wrap_sig)
+        .unwrap();
+
+    let mut ctx = module.make_context();
+    ctx.func.signature = wrap_sig;
+    ctx.func.name = UserFuncName::user(0, wrap_id.as_u32());
+
+    let mut bcx_ctx = FunctionBuilderContext::new();
+    {
+        let mut bcx = FunctionBuilder::new(&mut ctx.func, &mut bcx_ctx);
+        let entry = bcx.create_block();
+        bcx.append_block_params_for_function_params(entry);
+        bcx.switch_to_block(entry);
+        bcx.seal_block(entry);
+
+        // &'static i64 lowered as a single iconst pointer immediate. The
+        // reference type is load-bearing — passing `THE_NUMBER` by value would
+        // pick `JitArg for i64` and embed the literal `99` instead of its
+        // address.
+        let static_ref: &'static i64 = &THE_NUMBER;
+        let ret = deref_i64_jit::call(&mut bcx, &mut module, ext_id, static_ref);
+        bcx.ins().return_(&[ret]);
+        bcx.finalize();
+    }
+
+    module.define_function(wrap_id, &mut ctx).unwrap();
+    module.clear_context(&mut ctx);
+    module.finalize_definitions().unwrap();
+
+    let f: extern "C" fn() -> i64 =
+        unsafe { std::mem::transmute(module.get_finalized_function(wrap_id)) };
+    assert_eq!(f(), 99);
+}
+
+// ------------------------------------------------------------------
+// 8. `try_declare` exposes the underlying ModuleResult so callers can
+//    surface declare-time errors instead of panicking.
+// ------------------------------------------------------------------
+
+#[jit_export]
+fn try_declare_target(x: i64) -> i64 {
+    x + 1
+}
+
+#[test]
+fn try_declare_succeeds_for_fresh_module() {
+    let mut jb = jit_builder();
+    try_declare_target_jit::register(&mut jb);
+    let mut module = JITModule::new(jb);
+
+    let id = try_declare_target_jit::try_declare(&mut module).unwrap();
+    // declare() called after try_declare() should be idempotent (same id) —
+    // both end up requesting the same Import declaration with the same sig.
+    let id2 = try_declare_target_jit::declare(&mut module);
+    assert_eq!(id, id2);
+}
+
+#[test]
+fn try_declare_surfaces_signature_conflict() {
+    let mut jb = jit_builder();
+    try_declare_target_jit::register(&mut jb);
+    let mut module = JITModule::new(jb);
+
+    // Pre-declare the same name with a different signature — `try_declare`
+    // must surface the cranelift error instead of panicking.
+    let conflicting_sig = jit_signature!(&module; fn() -> i64);
+    module
+        .declare_function(
+            try_declare_target_jit::NAME,
+            Linkage::Import,
+            &conflicting_sig,
+        )
+        .unwrap();
+
+    let result = try_declare_target_jit::try_declare(&mut module);
+    assert!(result.is_err(), "expected declare to fail on signature conflict");
+}
+
 // Microsoft x64 passes 16-byte aggregates (`&str`) by hidden pointer; this
 // crate lowers them as two register params, so the callee reads garbage.
 #[cfg_attr(all(target_os = "windows", target_arch = "x86_64"), ignore)]

@@ -2,6 +2,13 @@
 //!
 //! Prefer depending on **`lower-ir-utils`** for the public API (`#[jit_export]` is
 //! re-exported there). Match this crate's version to your `lower-ir-utils` dependency.
+//!
+//! # Crate name
+//!
+//! The generated helpers reference the parent crate by its canonical name
+//! (`::lower_ir_utils::...`). Renaming the dependency in your `Cargo.toml`
+//! (e.g. `my-alias = { package = "lower-ir-utils", ... }`) will break the
+//! generated code; keep the canonical name `lower-ir-utils`.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
@@ -27,32 +34,58 @@ use syn::{parse_macro_input, FnArg, ItemFn, PatType, ReturnType, Type};
 ///     pub fn symbol_addr() -> *const u8;
 ///     pub fn register(jb: &mut JITBuilder);
 ///     pub fn signature<M: Module>(module: &M) -> Signature;
+///     pub fn try_declare<M: Module>(module: &mut M) -> ModuleResult<FuncId>;
 ///     pub fn declare<M: Module>(module: &mut M) -> FuncId;
 ///     pub fn call<M, A1, A2>(
 ///         bcx: &mut FunctionBuilder,
 ///         module: &mut M,
 ///         id: FuncId,
 ///         p1: A1, p2: A2,
-///     ) -> Value;          // or Inst when R is unit
+///     ) -> /* depends on R — see "Return value of `call`" below */;
 /// }
 /// ```
 ///
 /// Each `A_i: JitArg`, so users can pass either an already-lowered IR `Value`
 /// or a Rust constant (`&'static str`, `i64`, `*const T`, ...).
 ///
+/// # Caller obligations (safety)
+///
+/// `extern "C"` puts the ABI / Rust-validity contract on the **caller** — here,
+/// JIT-emitted code that ends up calling this Rust function. The macro only
+/// describes the ABI shape; it does not (and cannot) check that the values the
+/// JIT site produces actually uphold Rust's validity invariants. For each
+/// parameter type the JIT caller must guarantee:
+///
+/// - `&T` / `&mut T`: aligned, dereferenceable, point to a valid `T` for the
+///   call's duration; `&mut T` must not alias any other live access.
+/// - `&str`: pointer + length describe UTF-8 bytes that live for the call.
+/// - `&[T]` / `&mut [T]`: pointer + length describe a valid slice of `T`s; the
+///   `&mut` form must not alias any other live access.
+/// - `bool`: the byte passed in must be exactly `0` or `1` (Rust UB otherwise).
+/// - Raw pointers (`*const T`, `*mut T`): the pointee must outlive every JIT
+///   invocation when the pointer is embedded as an IR immediate; see the
+///   `JitArg` impls in `lower_ir_utils::abi`.
+///
+/// Mismatches surface as Cranelift verifier errors at best and Rust UB at
+/// worst. Treat the boundary as you would any other `extern "C"` boundary.
+///
 /// # Panics
 ///
 /// The generated `declare` helper unwraps `declare_function` with `expect`. It will
 /// panic if the symbol is already declared under the same name or if the module rejects
-/// the declaration for another reason (use the module API directly if you need non-panicking error handling).
+/// the declaration for another reason. Use the generated `try_declare` if you need to
+/// surface the error instead.
 ///
 /// # Return value of `call`
 ///
-/// When the annotated function returns a Rust value, `call` returns the callee's first
-/// SSA result (`cranelift_codegen::ir::Value`, via `inst_results`).
-/// When the return type is unit (no return / `-> ()`), `call` returns the
-/// `cranelift_codegen::ir::Inst` from the emitted `call` instead; you can discard it for
-/// side-effect-only calls or keep it if you need the instruction handle.
+/// The shape of `call`'s return depends on the annotated function's return type:
+///
+/// - `-> ()` (or no return): returns `cranelift_codegen::ir::Inst` — the call
+///   instruction handle, useful for side-effect-only calls.
+/// - Single non-unit return (e.g. `-> i64`, `-> &str`): returns
+///   `cranelift_codegen::ir::Value`, the callee's first SSA result.
+/// - Tuple return `(T1, ..., TN)` with `N >= 1`: returns `[Value; N]`
+///   containing every SSA result in declaration order.
 #[proc_macro_attribute]
 pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(item as ItemFn);
@@ -85,12 +118,20 @@ pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
         })
         .collect();
 
-    let return_type: Option<&Type> = match &input.sig.output {
+    // Three return shapes: unit (no return values), a single value, or an
+    // N-tuple (one Value per element). Knowing the arity statically lets `call`
+    // return `[Value; N]` instead of dropping all but the first result.
+    enum ReturnShape<'a> {
+        Single(&'a Type),
+        Tuple(usize, &'a Type),
+    }
+
+    let return_shape: Option<ReturnShape> = match &input.sig.output {
         ReturnType::Default => None,
         ReturnType::Type(_, ty) => match ty.as_ref() {
-            // `-> ()` is the same as no return for our purposes.
             Type::Tuple(t) if t.elems.is_empty() => None,
-            other => Some(other),
+            Type::Tuple(t) => Some(ReturnShape::Tuple(t.elems.len(), ty.as_ref())),
+            other => Some(ReturnShape::Single(other)),
         },
     };
 
@@ -110,8 +151,8 @@ pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
         })
         .collect();
 
-    let sig_return_pushes = match return_type {
-        Some(rt) => quote! {
+    let sig_return_pushes = match &return_shape {
+        Some(ReturnShape::Single(rt)) | Some(ReturnShape::Tuple(_, rt)) => quote! {
             <#rt as ::lower_ir_utils::JitParam>::push_params(&mut sig.returns, ptr_ty);
         },
         None => quote! {},
@@ -126,16 +167,26 @@ pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
         })
         .collect();
 
-    let (call_ret_ty, call_ret_expr) = if return_type.is_some() {
-        (
-            quote! { ::lower_ir_utils::__reexport::cranelift_codegen::ir::Value },
-            quote! { bcx.inst_results(__inst)[0] },
-        )
-    } else {
-        (
+    let (call_ret_ty, call_ret_expr) = match &return_shape {
+        None => (
             quote! { ::lower_ir_utils::__reexport::cranelift_codegen::ir::Inst },
             quote! { __inst },
-        )
+        ),
+        Some(ReturnShape::Single(_)) => (
+            quote! { ::lower_ir_utils::__reexport::cranelift_codegen::ir::Value },
+            quote! { bcx.inst_results(__inst)[0] },
+        ),
+        Some(ReturnShape::Tuple(n, _)) => {
+            let n_lit = *n;
+            let indices: Vec<usize> = (0..n_lit).collect();
+            (
+                quote! { [::lower_ir_utils::__reexport::cranelift_codegen::ir::Value; #n_lit] },
+                quote! {{
+                    let __results = bcx.inst_results(__inst);
+                    [ #( __results[#indices] ),* ]
+                }},
+            )
+        }
     };
 
     let expanded = quote! {
@@ -165,13 +216,23 @@ pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
                 sig
             }
 
+            pub fn try_declare<M: ::lower_ir_utils::__reexport::cranelift_module::Module>(
+                module: &mut M,
+            ) -> ::lower_ir_utils::__reexport::cranelift_module::ModuleResult<
+                ::lower_ir_utils::__reexport::cranelift_module::FuncId,
+            > {
+                let sig = signature(module);
+                module.declare_function(
+                    NAME,
+                    ::lower_ir_utils::__reexport::cranelift_module::Linkage::Import,
+                    &sig,
+                )
+            }
+
             pub fn declare<M: ::lower_ir_utils::__reexport::cranelift_module::Module>(
                 module: &mut M,
             ) -> ::lower_ir_utils::__reexport::cranelift_module::FuncId {
-                let sig = signature(module);
-                module
-                    .declare_function(NAME, ::lower_ir_utils::__reexport::cranelift_module::Linkage::Import, &sig)
-                    .expect("declare_function failed")
+                try_declare(module).expect("declare_function failed")
             }
 
             #[allow(clippy::too_many_arguments)]

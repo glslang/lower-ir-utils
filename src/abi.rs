@@ -40,7 +40,19 @@ pub trait JitParam {
 ///
 /// Implementations are provided for already-lowered `Value`s (passthrough),
 /// integer/float constants (emitted as `iconst`/`f64const`), `&'static str`
-/// (emitted as ptr+len constants), and raw pointers (emitted as `iconst`).
+/// and `&'static [T]` (emitted as ptr+len constants), `&'static T` /
+/// `&'static mut T` (emitted as a single `iconst`), and raw pointers (emitted
+/// as `iconst`).
+///
+/// # Pointer / reference lifetimes
+///
+/// Anything that lowers into a pointer immediate (`*const T`, `*mut T`,
+/// `&'static T`, `&'static mut T`, `&'static str`, `&'static [T]`) embeds the
+/// host address into the IR as a constant. The pointee must therefore outlive
+/// **every invocation** of the JIT-compiled function — a stack or
+/// short-lived heap pointer captured here is a use-after-free waiting to
+/// happen. The `&'static`-bounded impls enforce this at the type level; the
+/// raw-pointer impls leave it to the caller (see their `# Safety` notes).
 pub trait JitArg {
     /// Lower `self` into one or more cranelift values, appended to `out`.
     fn lower(self, bcx: &mut FunctionBuilder, ptr_ty: Type, out: &mut SmallVec<[Value; 8]>);
@@ -217,21 +229,65 @@ impl JitArg for f64 {
     }
 }
 
+/// Embeds the raw pointer as an `iconst` immediate.
+///
+/// # Safety
+///
+/// `JitArg` itself is a safe trait, but using this impl requires the same
+/// discipline you would apply when handing a raw pointer across an FFI
+/// boundary: the address baked into the IR must remain valid for the entire
+/// lifetime of every JIT invocation that may execute the resulting code, and
+/// any reads/writes performed through it on the JIT side must respect Rust's
+/// aliasing and validity rules for the pointee type. Stack pointers,
+/// heap allocations that may be freed before the IR is dropped, and reborrowed
+/// references to short-lived data are footguns. Prefer
+/// [`JitArg for &'static T`](#impl-JitArg-for-%26'static+T) when you can.
 impl<T: Sized> JitArg for *const T {
     fn lower(self, bcx: &mut FunctionBuilder, ptr_ty: Type, out: &mut SmallVec<[Value; 8]>) {
         out.push(bcx.ins().iconst(ptr_ty, self as i64));
     }
 }
 
+/// Embeds the raw pointer as an `iconst` immediate.
+///
+/// # Safety
+///
+/// Same caveats as the `*const T` impl above, plus: if the JIT side issues
+/// writes through this pointer, they must not alias any other live access to
+/// the pointee on the host side. Prefer
+/// [`JitArg for &'static mut T`](#impl-JitArg-for-%26'static+mut+T) where
+/// applicable.
 impl<T: Sized> JitArg for *mut T {
     fn lower(self, bcx: &mut FunctionBuilder, ptr_ty: Type, out: &mut SmallVec<[Value; 8]>) {
         out.push(bcx.ins().iconst(ptr_ty, self as i64));
     }
 }
 
+/// Embeds the reference's address as an `iconst` immediate.
+///
+/// The `'static` bound guarantees the pointee outlives any JIT invocation;
+/// this is the recommended path for embedding host data into generated code.
+impl<T: Sized> JitArg for &'static T {
+    fn lower(self, bcx: &mut FunctionBuilder, ptr_ty: Type, out: &mut SmallVec<[Value; 8]>) {
+        out.push(bcx.ins().iconst(ptr_ty, self as *const T as i64));
+    }
+}
+
+/// Embeds the reference's address as an `iconst` immediate.
+///
+/// The `'static` bound guarantees the pointee outlives any JIT invocation. As
+/// with any `&'static mut`, the caller is the sole live mutable borrow at the
+/// moment the immediate is captured; preventing further aliasing across JIT
+/// invocations is the caller's responsibility.
+impl<T: Sized> JitArg for &'static mut T {
+    fn lower(self, bcx: &mut FunctionBuilder, ptr_ty: Type, out: &mut SmallVec<[Value; 8]>) {
+        out.push(bcx.ins().iconst(ptr_ty, self as *mut T as i64));
+    }
+}
+
 /// Embeds the string's data pointer and length as IR constants.
 ///
-/// The string must outlive every invocation of the JIT-compiled function.
+/// The `'static` bound guarantees the bytes outlive every JIT invocation.
 impl JitArg for &'static str {
     fn lower(self, bcx: &mut FunctionBuilder, ptr_ty: Type, out: &mut SmallVec<[Value; 8]>) {
         out.push(bcx.ins().iconst(ptr_ty, self.as_ptr() as i64));
@@ -241,7 +297,7 @@ impl JitArg for &'static str {
 
 /// Embeds the slice's data pointer and length as IR constants.
 ///
-/// The slice must outlive every invocation of the JIT-compiled function.
+/// The `'static` bound guarantees the elements outlive every JIT invocation.
 impl<T: Sized> JitArg for &'static [T] {
     fn lower(self, bcx: &mut FunctionBuilder, ptr_ty: Type, out: &mut SmallVec<[Value; 8]>) {
         out.push(bcx.ins().iconst(ptr_ty, self.as_ptr() as i64));

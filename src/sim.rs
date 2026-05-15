@@ -404,6 +404,18 @@ impl Simulator {
                     Err(e) => return Error(e),
                 }
             }
+            // `bitcast` is a load-shaped instruction in CLIF (it carries
+            // `MemFlags`), so it lands here rather than `Unary`. Other
+            // `LoadNoOffset`-format ops (e.g. atomic loads) are not
+            // covered.
+            InstructionData::LoadNoOffset { arg, .. } if opcode == Opcode::Bitcast => {
+                let a = get!(*arg);
+                let ty = result_ty(0).unwrap_or_else(|| a.ty());
+                match apply_unary(opcode, a, ty) {
+                    Ok(v) => produced.push(v),
+                    Err(e) => return Error(e),
+                }
+            }
 
             // ----- compares -----
             InstructionData::IntCompare { args, cond, .. } => {
@@ -508,11 +520,10 @@ impl Simulator {
                 let pool = &func.dfg.value_lists;
                 let callee_data = &func.dfg.ext_funcs[*func_ref];
                 let callee_name = format_extname(&callee_data.name, func);
-                let arg_vals: Vec<SimValue> = args
-                    .as_slice(pool)
-                    .iter()
-                    .map(|v| state.registers.get(v).copied().unwrap_or(SimValue::I64(0)))
-                    .collect();
+                let mut arg_vals: Vec<SimValue> = Vec::with_capacity(args.len(pool));
+                for v in args.as_slice(pool) {
+                    arg_vals.push(get!(*v));
+                }
 
                 if state.record_trace {
                     state.trace.push(format!(

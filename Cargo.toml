@@ -22,6 +22,10 @@ all-features = true
 # JIT-compiled functions. Pulls in `capstone` (the same disassembler
 # Cranelift itself uses behind its own `disas` feature).
 disas = ["dep:capstone"]
+# Enables the `sim` module: a small Cranelift IR interpreter that walks a
+# finalized `Function` against a flat byte buffer, then prints memory,
+# the SSA register table, and final return values. No extra deps.
+sim = []
 
 [dependencies]
 cranelift = "0.131"

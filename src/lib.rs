@@ -84,6 +84,8 @@ pub mod builder;
 #[cfg(feature = "disas")]
 pub mod disasm;
 mod macros;
+#[cfg(feature = "sim")]
+pub mod sim;
 
 pub use abi::{JitArg, JitParam};
 pub use builder::{define_function, IntoReturns};

@@ -280,3 +280,28 @@ fn dump_sections() {
     assert!(out.contains("=== Memory (32 bytes"), "{out}");
     assert!(out.contains("|ABCD"), "{out}");
 }
+
+// 8. `bitcast` lands in InstructionData::LoadNoOffset (it carries
+// MemFlags), not Unary — verify it's still routed to apply_unary.
+#[test]
+fn bitcast_int_to_float() {
+    let mut func = empty_func(&[types::I64], &[types::F64]);
+    let mut ctx = FunctionBuilderContext::new();
+    {
+        let mut bcx = FunctionBuilder::new(&mut func, &mut ctx);
+        let entry = bcx.create_block();
+        bcx.append_block_params_for_function_params(entry);
+        bcx.switch_to_block(entry);
+        bcx.seal_block(entry);
+        let a = bcx.block_params(entry)[0];
+        let f = bcx.ins().bitcast(types::F64, MemFlags::new(), a);
+        bcx.ins().return_(&[f]);
+        bcx.finalize();
+    }
+
+    let bits = std::f64::consts::PI.to_bits() as i64;
+    let mut sim = Simulator::new(0);
+    let result = sim.run(&func, &[SimValue::I64(bits)]);
+    assert!(result.error.is_none(), "{:?}", result.error);
+    assert_eq!(result.returns, vec![SimValue::F64(std::f64::consts::PI)]);
+}

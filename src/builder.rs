@@ -8,6 +8,7 @@
 //! `Vec<Value>` all work without ceremony.
 
 use cranelift_codegen::ir::{InstBuilder, Signature, UserFuncName, Value};
+use cranelift_codegen::Context;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{FuncId, Linkage, Module, ModuleResult};
 use smallvec::SmallVec;
@@ -86,6 +87,32 @@ where
     F: FnOnce(&mut FunctionBuilder<'_>, &mut M, &[Value]) -> R,
     R: IntoReturns,
 {
+    let (func_id, mut ctx) = declare_and_build(module, name, linkage, signature, body)?;
+    module.define_function(func_id, &mut ctx)?;
+    module.clear_context(&mut ctx);
+    Ok(func_id)
+}
+
+/// Shared inner step for [`define_function`] and its disasm-capturing variant.
+///
+/// Declares the function on `module`, builds a fresh `Context` with an entry
+/// block containing the lowered body, but **does not** call
+/// `module.define_function`. The caller drives the final compile step so it
+/// can configure compile-time options (e.g. enabling disassembly capture)
+/// before lowering happens.
+#[allow(clippy::result_large_err)]
+pub(crate) fn declare_and_build<M, F, R>(
+    module: &mut M,
+    name: &str,
+    linkage: Linkage,
+    signature: Signature,
+    body: F,
+) -> ModuleResult<(FuncId, Context)>
+where
+    M: Module,
+    F: FnOnce(&mut FunctionBuilder<'_>, &mut M, &[Value]) -> R,
+    R: IntoReturns,
+{
     let func_id = module.declare_function(name, linkage, &signature)?;
 
     let mut ctx = module.make_context();
@@ -105,7 +132,5 @@ where
         bcx.finalize();
     }
 
-    module.define_function(func_id, &mut ctx)?;
-    module.clear_context(&mut ctx);
-    Ok(func_id)
+    Ok((func_id, ctx))
 }

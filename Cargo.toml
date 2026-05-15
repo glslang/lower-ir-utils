@@ -17,6 +17,12 @@ categories = ["development-tools", "compilers"]
 [package.metadata.docs.rs]
 all-features = true
 
+[features]
+# Enables the `disasm` module: side-by-side machine-code / mnemonic dumps of
+# JIT-compiled functions. Pulls in `capstone` (the same disassembler
+# Cranelift itself uses behind its own `disas` feature).
+disas = ["dep:capstone"]
+
 [dependencies]
 cranelift = "0.131"
 cranelift-jit = "0.131"
@@ -25,6 +31,7 @@ cranelift-codegen = "0.131"
 cranelift-frontend = "0.131"
 smallvec = "1"
 lower-ir-utils-macros = { path = "macros", version = "0.1.0" }
+capstone = { version = "0.13", optional = true }
 
 [dev-dependencies]
 cranelift-native = "0.131"

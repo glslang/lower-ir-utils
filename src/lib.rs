@@ -81,10 +81,17 @@
 
 pub mod abi;
 pub mod builder;
+#[cfg(feature = "disas")]
+pub mod disasm;
 mod macros;
 
 pub use abi::{JitArg, JitParam};
 pub use builder::{define_function, IntoReturns};
+#[cfg(feature = "disas")]
+pub use disasm::{
+    define_function_with_disasm, format_disassembly, DefineFunctionWithDisasmError, DisasmError,
+    JitDisasm,
+};
 pub use lower_ir_utils_macros::jit_export;
 
 #[doc(hidden)]

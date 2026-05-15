@@ -185,10 +185,7 @@ fn capstone_for(isa: &dyn TargetIsa) -> Result<Capstone, DisasmError> {
 ///
 /// The `isa` is only used to pick the right Capstone decoder; the byte
 /// slice is treated as a flat instruction stream starting at offset 0.
-pub fn format_disassembly(
-    bytes: &[u8],
-    isa: &dyn TargetIsa,
-) -> Result<String, DisasmError> {
+pub fn format_disassembly(bytes: &[u8], isa: &dyn TargetIsa) -> Result<String, DisasmError> {
     let cs = capstone_for(isa)?;
     let insns = cs.disasm_all(bytes, 0)?;
 

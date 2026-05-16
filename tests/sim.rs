@@ -305,3 +305,102 @@ fn bitcast_int_to_float() {
     assert!(result.error.is_none(), "{:?}", result.error);
     assert_eq!(result.returns, vec![SimValue::F64(std::f64::consts::PI)]);
 }
+
+// 9. `uextend` must zero-extend, not sign-extend: I8(0xFF) -> I32(255).
+#[test]
+fn uextend_zero_extends_narrow() {
+    let mut func = empty_func(&[types::I8], &[types::I32]);
+    let mut ctx = FunctionBuilderContext::new();
+    {
+        let mut bcx = FunctionBuilder::new(&mut func, &mut ctx);
+        let entry = bcx.create_block();
+        bcx.append_block_params_for_function_params(entry);
+        bcx.switch_to_block(entry);
+        bcx.seal_block(entry);
+        let a = bcx.block_params(entry)[0];
+        let w = bcx.ins().uextend(types::I32, a);
+        bcx.ins().return_(&[w]);
+        bcx.finalize();
+    }
+
+    let mut sim = Simulator::new(0);
+    // I8(0xFF) is -1 signed, 255 unsigned. uextend must give 255.
+    let result = sim.run(&func, &[SimValue::I8(-1)]);
+    assert!(result.error.is_none(), "{:?}", result.error);
+    assert_eq!(result.returns, vec![SimValue::I32(255)]);
+
+    // Sanity: sextend on the same input gives -1 (0xFFFFFFFF).
+    let mut func2 = empty_func(&[types::I8], &[types::I32]);
+    let mut ctx2 = FunctionBuilderContext::new();
+    {
+        let mut bcx = FunctionBuilder::new(&mut func2, &mut ctx2);
+        let entry = bcx.create_block();
+        bcx.append_block_params_for_function_params(entry);
+        bcx.switch_to_block(entry);
+        bcx.seal_block(entry);
+        let a = bcx.block_params(entry)[0];
+        let w = bcx.ins().sextend(types::I32, a);
+        bcx.ins().return_(&[w]);
+        bcx.finalize();
+    }
+    let mut sim = Simulator::new(0);
+    let result = sim.run(&func2, &[SimValue::I8(-1)]);
+    assert!(result.error.is_none(), "{:?}", result.error);
+    assert_eq!(result.returns, vec![SimValue::I32(-1)]);
+}
+
+// 10. Narrow unsigned arithmetic must mask to the operand width before
+// the unsigned op: I8(200) udiv I8(2) -> I8(100), not the sign-extended
+// `0xFFFF_FFFF_FFFF_FFC8 / 2`.
+#[test]
+fn udiv_narrow_unsigned() {
+    let mut func = empty_func(&[types::I8, types::I8], &[types::I8]);
+    let mut ctx = FunctionBuilderContext::new();
+    {
+        let mut bcx = FunctionBuilder::new(&mut func, &mut ctx);
+        let entry = bcx.create_block();
+        bcx.append_block_params_for_function_params(entry);
+        bcx.switch_to_block(entry);
+        bcx.seal_block(entry);
+        let a = bcx.block_params(entry)[0];
+        let b = bcx.block_params(entry)[1];
+        let q = bcx.ins().udiv(a, b);
+        bcx.ins().return_(&[q]);
+        bcx.finalize();
+    }
+
+    // 200 unsigned is -56 signed in i8.
+    let mut sim = Simulator::new(0);
+    let result = sim.run(&func, &[SimValue::I8(-56), SimValue::I8(2)]);
+    assert!(result.error.is_none(), "{:?}", result.error);
+    // 200 / 2 = 100, which is in i8 range.
+    assert_eq!(result.returns, vec![SimValue::I8(100)]);
+}
+
+// 11. `icmp_imm` must wrap the immediate to the operand's width. With
+// I8 operands, an immediate of 200 is i8::-56, so `0 < 200` (unsigned)
+// is true but `0 SignedLessThan 200` should be false (since 200 wraps
+// to -56).
+#[test]
+fn icmp_imm_wraps_immediate_to_operand_width() {
+    let mut func = empty_func(&[types::I8], &[types::I8]);
+    let mut ctx = FunctionBuilderContext::new();
+    {
+        let mut bcx = FunctionBuilder::new(&mut func, &mut ctx);
+        let entry = bcx.create_block();
+        bcx.append_block_params_for_function_params(entry);
+        bcx.switch_to_block(entry);
+        bcx.seal_block(entry);
+        let a = bcx.block_params(entry)[0];
+        let cmp = bcx.ins().icmp_imm(IntCC::SignedLessThan, a, 200);
+        bcx.ins().return_(&[cmp]);
+        bcx.finalize();
+    }
+
+    // a = 0, imm = 200 wraps to -56 as i8.
+    // SignedLessThan: 0 < -56 → false.
+    let mut sim = Simulator::new(0);
+    let result = sim.run(&func, &[SimValue::I8(0)]);
+    assert!(result.error.is_none(), "{:?}", result.error);
+    assert_eq!(result.returns, vec![SimValue::I8(0)]);
+}

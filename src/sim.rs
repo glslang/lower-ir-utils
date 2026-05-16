@@ -425,7 +425,18 @@ impl Simulator {
             }
             InstructionData::IntCompareImm { arg, imm, cond, .. } => {
                 let a = get!(*arg);
-                let b = SimValue::I64((*imm).into());
+                let imm_i64: i64 = (*imm).into();
+                // Wrap the immediate at the operand's width so signed and
+                // unsigned compares both see the same value Cranelift would.
+                let b = match a {
+                    SimValue::I8(_) => SimValue::I8(imm_i64 as i8),
+                    SimValue::I16(_) => SimValue::I16(imm_i64 as i16),
+                    SimValue::I32(_) => SimValue::I32(imm_i64 as i32),
+                    SimValue::I64(_) => SimValue::I64(imm_i64),
+                    SimValue::F32(_) | SimValue::F64(_) => {
+                        return Error(SimError::TypeMismatch("icmp_imm on float operand".into()));
+                    }
+                };
                 produced.push(SimValue::I8(icmp(*cond, a, b) as i8));
             }
             InstructionData::FloatCompare { args, cond, .. } => {
@@ -598,10 +609,10 @@ fn apply_binary(op: Opcode, a: SimValue, b: SimValue) -> Result<SimValue, SimErr
     use SimValue::*;
     let mismatch = |what: &str| SimError::TypeMismatch(format!("{op}: {what}"));
     match (a, b) {
-        (I8(x), I8(y)) => apply_int(op, x as i64, y as i64).map(|r| I8(r as i8)),
-        (I16(x), I16(y)) => apply_int(op, x as i64, y as i64).map(|r| I16(r as i16)),
-        (I32(x), I32(y)) => apply_int(op, x as i64, y as i64).map(|r| I32(r as i32)),
-        (I64(x), I64(y)) => apply_int(op, x, y).map(I64),
+        (I8(x), I8(y)) => apply_int(op, x as i64, y as i64, 8).map(|r| I8(r as i8)),
+        (I16(x), I16(y)) => apply_int(op, x as i64, y as i64, 16).map(|r| I16(r as i16)),
+        (I32(x), I32(y)) => apply_int(op, x as i64, y as i64, 32).map(|r| I32(r as i32)),
+        (I64(x), I64(y)) => apply_int(op, x, y, 64).map(I64),
         (F32(x), F32(y)) => apply_float(op, x as f64, y as f64).map(|r| F32(r as f32)),
         (F64(x), F64(y)) => apply_float(op, x, y).map(F64),
         _ => Err(mismatch("operand types differ")),
@@ -621,21 +632,33 @@ fn apply_binary_imm(op: Opcode, a: SimValue, imm: i64) -> Result<SimValue, SimEr
     apply_binary(op, a, b)
 }
 
-fn apply_int(op: Opcode, x: i64, y: i64) -> Result<i64, SimError> {
+/// Operates on the i64 sign-extended forms of the inputs. `width` is the
+/// integer's width in bits — unsigned ops need to mask back to the
+/// original width so that e.g. `udiv I8(200) I8(2)` doesn't see the
+/// sign-extended `0xFFFF_FFFF_FFFF_FFC8`.
+fn apply_int(op: Opcode, x: i64, y: i64, width: u32) -> Result<i64, SimError> {
+    let mask: u64 = if width == 64 {
+        u64::MAX
+    } else {
+        (1u64 << width) - 1
+    };
+    let xu = (x as u64) & mask;
+    let yu = (y as u64) & mask;
+    let shamt = (y as u32) & (width - 1);
     Ok(match op {
         Opcode::Iadd | Opcode::IaddImm => x.wrapping_add(y),
         Opcode::Isub => x.wrapping_sub(y),
         Opcode::Imul | Opcode::ImulImm => x.wrapping_mul(y),
         Opcode::Sdiv | Opcode::SdivImm => x.checked_div(y).unwrap_or(0),
-        Opcode::Udiv | Opcode::UdivImm => (x as u64).checked_div(y as u64).unwrap_or(0) as i64,
+        Opcode::Udiv | Opcode::UdivImm => xu.checked_div(yu).unwrap_or(0) as i64,
         Opcode::Srem | Opcode::SremImm => x.checked_rem(y).unwrap_or(0),
-        Opcode::Urem | Opcode::UremImm => (x as u64).checked_rem(y as u64).unwrap_or(0) as i64,
+        Opcode::Urem | Opcode::UremImm => xu.checked_rem(yu).unwrap_or(0) as i64,
         Opcode::Band | Opcode::BandImm => x & y,
         Opcode::Bor | Opcode::BorImm => x | y,
         Opcode::Bxor | Opcode::BxorImm => x ^ y,
-        Opcode::Ishl | Opcode::IshlImm => x.wrapping_shl((y as u32) & 63),
-        Opcode::Ushr | Opcode::UshrImm => ((x as u64).wrapping_shr((y as u32) & 63)) as i64,
-        Opcode::Sshr | Opcode::SshrImm => x.wrapping_shr((y as u32) & 63),
+        Opcode::Ishl | Opcode::IshlImm => x.wrapping_shl(shamt),
+        Opcode::Ushr | Opcode::UshrImm => xu.wrapping_shr(shamt) as i64,
+        Opcode::Sshr | Opcode::SshrImm => x.wrapping_shr(shamt),
         _ => return Err(SimError::UnsupportedOpcode(format!("{op}"))),
     })
 }
@@ -673,11 +696,16 @@ fn apply_unary(op: Opcode, a: SimValue, result_ty: Type) -> Result<SimValue, Sim
             _ => return Err(SimError::TypeMismatch("bnot on float".into())),
         },
         Opcode::Uextend | Opcode::Sextend => {
-            let signed = matches!(op, Opcode::Sextend);
-            let raw = if signed {
-                a.as_i64()
-            } else {
-                a.as_u64() as i64
+            // `as_u64` sign-extends narrow types (it routes through `as i64
+            // as u64`), so for `uextend` we must explicitly zero-extend
+            // from the operand's actual width.
+            let raw = match (op, a) {
+                (Opcode::Sextend, _) => a.as_i64(),
+                (Opcode::Uextend, I8(x)) => x as u8 as i64,
+                (Opcode::Uextend, I16(x)) => x as u16 as i64,
+                (Opcode::Uextend, I32(x)) => x as u32 as i64,
+                (Opcode::Uextend, I64(x)) => x,
+                _ => return Err(SimError::TypeMismatch(format!("{op} on float"))),
             };
             match result_ty {
                 types::I8 => I8(raw as i8),

@@ -12,6 +12,7 @@ use cranelift_codegen::ir::{
 use cranelift_codegen::isa::CallConv;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 
+use lower_ir_utils::jit_call;
 use lower_ir_utils::sim::{SimValue, Simulator};
 
 fn empty_func(params: &[types::Type], returns: &[types::Type]) -> Function {
@@ -244,6 +245,60 @@ fn call_stub() {
     assert!(
         trace_blob.contains("I64(7)") && trace_blob.contains("I64(35)"),
         "expected arg values in trace, got:\n{trace_blob}"
+    );
+}
+
+// 6b. Stubbed call with a `&str` arg: exercises `jit_call!`'s `&'static str`
+// lowering (ptr + len fat pointer = two pointer-sized iconsts) against the
+// sim's call stub. Verifies the call landed, the stub returned zero, and
+// the lowered length value appears in the trace.
+#[test]
+fn call_with_str() {
+    let mut func = empty_func(&[], &[types::I64]);
+
+    // Imported callee: fn(&str) -> i64, i.e. (data_ptr, len) -> i64 on a
+    // 64-bit target.
+    let mut callee_sig = Signature::new(CallConv::SystemV);
+    callee_sig.params.push(AbiParam::new(types::I64));
+    callee_sig.params.push(AbiParam::new(types::I64));
+    callee_sig.returns.push(AbiParam::new(types::I64));
+    let sig_ref = func.import_signature(callee_sig);
+    let name_ref = func.declare_imported_user_function(UserExternalName::new(0, 1));
+    let func_ref = func.import_function(ExtFuncData {
+        name: ExternalName::user(name_ref),
+        signature: sig_ref,
+        colocated: false,
+        patchable: false,
+    });
+
+    let mut ctx = FunctionBuilderContext::new();
+    {
+        let mut bcx = FunctionBuilder::new(&mut func, &mut ctx);
+        let entry = bcx.create_block();
+        bcx.append_block_params_for_function_params(entry);
+        bcx.switch_to_block(entry);
+        bcx.seal_block(entry);
+        // `jit_call!` lowers `"hello, world!"` into two iconsts (ptr, len=13)
+        // and emits the call. No Module needed — ptr_ty is supplied directly.
+        let call = jit_call!(&mut bcx, types::I64, func_ref; "hello, world!");
+        let rs = bcx.inst_results(call).to_vec();
+        bcx.ins().return_(&rs);
+        bcx.finalize();
+    }
+
+    let mut sim = Simulator::new(0);
+    sim.trace = true;
+    let result = sim.run(&func, &[]);
+    assert!(result.error.is_none(), "{:?}", result.error);
+    assert_eq!(result.returns, vec![SimValue::I64(0)]);
+    let trace_blob = result.trace.join("\n");
+    assert!(
+        trace_blob.contains("call "),
+        "expected call line in trace, got:\n{trace_blob}"
+    );
+    assert!(
+        trace_blob.contains("I64(13)"),
+        "expected len=13 arg in trace, got:\n{trace_blob}"
     );
 }
 

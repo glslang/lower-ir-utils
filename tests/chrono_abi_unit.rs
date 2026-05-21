@@ -32,15 +32,18 @@ fn naive_date_is_one_i32() {
 }
 
 #[test]
-fn naive_time_is_one_i64() {
-    assert_eq!(types_of(&collect::<JitNaiveTime>()), vec![types::I64]);
+fn naive_time_is_two_i32() {
+    assert_eq!(
+        types_of(&collect::<JitNaiveTime>()),
+        vec![types::I32, types::I32]
+    );
 }
 
 #[test]
-fn naive_date_time_is_i32_then_i64() {
+fn naive_date_time_is_three_i32() {
     assert_eq!(
         types_of(&collect::<JitNaiveDateTime>()),
-        vec![types::I32, types::I64]
+        vec![types::I32, types::I32, types::I32]
     );
 }
 
@@ -48,28 +51,28 @@ fn naive_date_time_is_i32_then_i64() {
 fn composes_in_tuples() {
     // Validates that the wrapper plays nicely with the existing tuple
     // `JitParam` impls in `src/abi.rs` — the tuple expands each element in
-    // order, so this should be I32, I64 (from the datetime) then I64
-    // (trailing scalar).
+    // order, so this should be the three datetime scalars followed by the
+    // trailing scalar.
     assert_eq!(
         types_of(&collect::<(JitNaiveDateTime, i64)>()),
-        vec![types::I32, types::I64, types::I64]
+        vec![types::I32, types::I32, types::I32, types::I64]
     );
 }
 
 #[test]
 fn encoding_is_independent_of_ptr_ty() {
-    // The wrappers ignore `ptr_ty` — their scalars are always I32 / I64.
+    // The wrappers ignore `ptr_ty` — their scalars are always I32.
     assert_eq!(
         types_of(&collect_with::<JitNaiveDate>(types::I32)),
         vec![types::I32],
     );
     assert_eq!(
         types_of(&collect_with::<JitNaiveTime>(types::I32)),
-        vec![types::I64],
+        vec![types::I32, types::I32],
     );
     assert_eq!(
         types_of(&collect_with::<JitNaiveDateTime>(types::I32)),
-        vec![types::I32, types::I64],
+        vec![types::I32, types::I32, types::I32],
     );
 }
 

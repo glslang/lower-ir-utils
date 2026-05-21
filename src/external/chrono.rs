@@ -4,16 +4,17 @@
 //! around the corresponding `chrono` type and lowers to plain integer
 //! constants:
 //!
-//! | Wrapper             | ABI shape          | Encoding                                                                  |
-//! |---------------------|--------------------|---------------------------------------------------------------------------|
-//! | [`JitNaiveDate`]    | one `I32`          | [`NaiveDate::num_days_from_ce`]                                           |
-//! | [`JitNaiveTime`]    | one `I64`          | `num_seconds_from_midnight() * 1_000_000_000 + nanosecond()`              |
-//! | [`JitNaiveDateTime`]| `I32` then `I64`   | the two above, in that order (date first, time second)                    |
+//! | Wrapper              | ABI shape           | Encoding                                                                  |
+//! |----------------------|---------------------|---------------------------------------------------------------------------|
+//! | [`JitNaiveDate`]     | one `I32`           | [`NaiveDate::num_days_from_ce`]                                           |
+//! | [`JitNaiveTime`]     | `I32` then `I32`    | `num_seconds_from_midnight()`, then [`Timelike::nanosecond`]              |
+//! | [`JitNaiveDateTime`] | `I32`, `I32`, `I32` | the two above concatenated (date scalars first, time scalars second)      |
 //!
 //! Reconstruction on the JIT-callee side uses the inverse constructors:
-//! [`NaiveDate::from_num_days_from_ce_opt`],
-//! [`NaiveTime::from_num_seconds_from_midnight_opt`], and pairing the two
-//! for [`NaiveDateTime`].
+//! [`NaiveDate::from_num_days_from_ce_opt`] for the date,
+//! [`NaiveTime::from_num_seconds_from_midnight_opt`] for the time (it
+//! accepts the leap-second `nano >= 1_000_000_000` case unchanged), and
+//! pairing the two for [`NaiveDateTime`].
 //!
 //! # Lifetimes
 //!
@@ -26,10 +27,13 @@
 //! # Leap seconds
 //!
 //! `chrono` represents a leap second by letting [`Timelike::nanosecond`]
-//! return a value `>= 1_000_000_000` on the affected second. The
-//! [`JitNaiveTime`] encoding preserves that — the host can re-detect the
-//! leap second by passing the same nanosecond value back through
-//! [`NaiveTime::from_num_seconds_from_midnight_opt`], which accepts it.
+//! return a value `>= 1_000_000_000` on the affected second. Both the
+//! seconds-from-midnight and nanosecond scalars are carried verbatim, so a
+//! leap-second [`NaiveTime`] round-trips exactly through
+//! [`NaiveTime::from_num_seconds_from_midnight_opt`] without colliding with
+//! the next second's encoding — an earlier single-`I64`
+//! `secs * 1_000_000_000 + nano` form had that collision (e.g.
+//! `(secs=59, nano=1_000_000_000)` matched `(secs=60, nano=0)`).
 
 use ::chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
 use cranelift_codegen::ir::{AbiParam, Type, Value};
@@ -65,20 +69,23 @@ use crate::abi::{JitArg, JitParam};
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct JitNaiveDate(pub NaiveDate);
 
-/// Newtype wrapper carrying a [`NaiveTime`] across the JIT ABI boundary as a
-/// single `I64` scalar (nanoseconds from midnight).
+/// Newtype wrapper carrying a [`NaiveTime`] across the JIT ABI boundary as
+/// two `I32` scalars: `num_seconds_from_midnight()` first, then
+/// [`Timelike::nanosecond`].
 ///
-/// The encoding is
-/// `num_seconds_from_midnight() as i64 * 1_000_000_000 + nanosecond() as i64`;
-/// leap-second nanos (`>= 1e9`) are passed through unchanged so a host-side
-/// call to [`NaiveTime::from_num_seconds_from_midnight_opt`] round-trips
-/// the original value.
+/// Splitting the seconds and nanoseconds into two scalars (rather than
+/// folding them into one `I64`) keeps the mapping injective for
+/// `chrono`'s leap-second representation, where `nanosecond()` may exceed
+/// `1_000_000_000`. The host can reconstruct the value with
+/// [`NaiveTime::from_num_seconds_from_midnight_opt(secs, nano)`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct JitNaiveTime(pub NaiveTime);
 
 /// Newtype wrapper carrying a [`NaiveDateTime`] across the JIT ABI boundary
-/// as two scalars: an `I32` (days from CE) followed by an `I64` (nanos from
-/// midnight). The ordering mirrors how `&str` lowers to `(ptr, len)`.
+/// as three `I32` scalars: days-from-CE, seconds-from-midnight, nanosecond.
+/// The order is date scalars first, then time scalars — the same
+/// concatenation [`JitNaiveDate`] and [`JitNaiveTime`] would produce on
+/// their own.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct JitNaiveDateTime(pub NaiveDateTime);
 
@@ -124,11 +131,6 @@ impl From<JitNaiveDateTime> for NaiveDateTime {
     }
 }
 
-#[inline]
-fn nanos_from_midnight(t: NaiveTime) -> i64 {
-    t.num_seconds_from_midnight() as i64 * 1_000_000_000 + t.nanosecond() as i64
-}
-
 impl JitParam for JitNaiveDate {
     fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type) {
         <i32 as JitParam>::push_params(out, ptr_ty);
@@ -143,13 +145,18 @@ impl JitArg for JitNaiveDate {
 
 impl JitParam for JitNaiveTime {
     fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type) {
-        <i64 as JitParam>::push_params(out, ptr_ty);
+        <i32 as JitParam>::push_params(out, ptr_ty);
+        <i32 as JitParam>::push_params(out, ptr_ty);
     }
 }
 
 impl JitArg for JitNaiveTime {
     fn lower(self, bcx: &mut FunctionBuilder, ptr_ty: Type, out: &mut SmallVec<[Value; 8]>) {
-        nanos_from_midnight(self.0).lower(bcx, ptr_ty, out);
+        // `as i32` reinterprets the `u32` bit pattern; the host recovers the
+        // original `u32` with `as u32` before calling
+        // `NaiveTime::from_num_seconds_from_midnight_opt`.
+        (self.0.num_seconds_from_midnight() as i32).lower(bcx, ptr_ty, out);
+        (self.0.nanosecond() as i32).lower(bcx, ptr_ty, out);
     }
 }
 

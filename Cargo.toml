@@ -26,6 +26,10 @@ disas = ["dep:capstone"]
 # finalized `Function` against a flat byte buffer, then prints memory,
 # the SSA register table, and final return values. No extra deps.
 sim = []
+# Enables the `external::chrono` module: `JitParam`/`JitArg` wrappers for
+# `chrono`'s naive date/time types (`JitNaiveDate`, `JitNaiveTime`,
+# `JitNaiveDateTime`). Pulls in `chrono` with default features off.
+chrono = ["dep:chrono"]
 
 [dependencies]
 cranelift = "0.131"
@@ -36,6 +40,7 @@ cranelift-frontend = "0.131"
 smallvec = "1"
 lower-ir-utils-macros = { path = "macros", version = "0.1.0" }
 capstone = { version = "0.14", optional = true }
+chrono = { version = "0.4", default-features = false, optional = true }
 
 [dev-dependencies]
 cranelift-native = "0.131"

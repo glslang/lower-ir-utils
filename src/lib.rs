@@ -83,6 +83,8 @@ pub mod abi;
 pub mod builder;
 #[cfg(feature = "disas")]
 pub mod disasm;
+#[cfg(feature = "chrono")]
+pub mod external;
 mod macros;
 #[cfg(feature = "sim")]
 pub mod sim;
@@ -94,6 +96,8 @@ pub use disasm::{
     define_function_with_disasm, format_disassembly, DefineFunctionWithDisasmError, DisasmError,
     JitDisasm,
 };
+#[cfg(feature = "chrono")]
+pub use external::chrono::{JitNaiveDate, JitNaiveDateTime, JitNaiveTime};
 pub use lower_ir_utils_macros::jit_export;
 
 #[doc(hidden)]

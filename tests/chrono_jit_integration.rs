@@ -56,9 +56,7 @@ fn lowers_naive_date_to_i32_days_from_ce() {
         "wrap",
         Linkage::Export,
         fn() -> i32,
-        |bcx, module, _params| {
-            echo_days_jit::call(bcx, module, ext_id, JitNaiveDate(date))
-        },
+        |bcx, module, _params| { echo_days_jit::call(bcx, module, ext_id, JitNaiveDate(date)) },
     )
     .unwrap();
 
@@ -96,9 +94,7 @@ fn lowers_naive_time_to_i64_nanos_from_midnight() {
         "wrap",
         Linkage::Export,
         fn() -> i64,
-        |bcx, module, _params| {
-            echo_nanos_jit::call(bcx, module, ext_id, JitNaiveTime(time))
-        },
+        |bcx, module, _params| { echo_nanos_jit::call(bcx, module, ext_id, JitNaiveTime(time)) },
     )
     .unwrap();
 
@@ -129,7 +125,9 @@ fn lowers_naive_time_to_i64_nanos_from_midnight() {
 #[jit_export]
 fn combine_dt(days: i32, nanos: i64) -> i64 {
     // Mixes both scalars so a wire-up regression on either side fails the test.
-    (days as i64).wrapping_mul(1_000_000_003).wrapping_add(nanos)
+    (days as i64)
+        .wrapping_mul(1_000_000_003)
+        .wrapping_add(nanos)
 }
 
 #[test]
@@ -144,7 +142,9 @@ fn lowers_naive_date_time_to_two_scalars() {
     let dt = NaiveDateTime::new(date, time);
     let days = date.num_days_from_ce();
     let nanos = time.num_seconds_from_midnight() as i64 * 1_000_000_000 + time.nanosecond() as i64;
-    let expected = (days as i64).wrapping_mul(1_000_000_003).wrapping_add(nanos);
+    let expected = (days as i64)
+        .wrapping_mul(1_000_000_003)
+        .wrapping_add(nanos);
 
     let wrap_id = define_jit_fn!(
         &mut module,

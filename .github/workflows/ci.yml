@@ -81,4 +81,5 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Build documentation
-        run: cargo doc --workspace --no-deps
+        # Match docs.rs (`package.metadata.docs.rs` all-features = true).
+        run: cargo doc --workspace --no-deps --all-features

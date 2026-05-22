@@ -84,12 +84,12 @@
 //!
 //! All optional features are **off by default** (`docs.rs` builds with `all-features = true`).
 //!
-//! - **`disas`** — [`disasm`] module: [`define_function_with_disasm`], [`format_disassembly`]
-//!   (Capstone side-by-side opcode dumps).
-//! - **`sim`** — [`sim`] module: [`Simulator`](sim::Simulator) IR interpreter over a flat byte
-//!   buffer (debug aid; host `call`s are stubbed).
-//! - **`chrono`** — [`external::chrono`] wrappers [`JitNaiveDate`], [`JitNaiveTime`],
-//!   [`JitNaiveDateTime`] for naive `chrono` date/time types.
+//! - **`disas`** — `disasm` module (`define_function_with_disasm`, `format_disassembly`):
+//!   Capstone side-by-side opcode dumps.
+//! - **`sim`** — `sim` module (`Simulator`, `SimValue`, `SimResult`): IR interpreter over a
+//!   flat byte buffer (debug aid; host `call`s are stubbed).
+//! - **`chrono`** — `external::chrono` wrappers (`JitNaiveDate`, `JitNaiveTime`,
+//!   `JitNaiveDateTime`) for naive `chrono` date/time types.
 //!
 //! The crate README (also on docs.rs) adds runnable sketches and links to integration tests.
 

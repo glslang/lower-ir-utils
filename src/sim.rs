@@ -291,9 +291,7 @@ impl Simulator {
                 match Self::step(func, &mut state, inst, inst_data) {
                     StepResult::Continue => {}
                     StepResult::Jump(target, params) => {
-                        for (slot, val) in
-                            func.dfg.block_params(target).iter().zip(params.into_iter())
-                        {
+                        for (slot, val) in func.dfg.block_params(target).iter().zip(params) {
                             state.registers.insert(*slot, val);
                         }
                         current = target;
@@ -579,7 +577,7 @@ impl Simulator {
                 .trace
                 .push(format!("  {prefix}{opcode} [{}]", rhs.join(", ")));
         }
-        for (slot, val) in results.iter().zip(produced.into_iter()) {
+        for (slot, val) in results.iter().zip(produced) {
             state.registers.insert(*slot, val);
         }
 

@@ -45,6 +45,9 @@ giving you direct access to the underlying `FunctionBuilder` and `Module`.
   finalized `Function` against a flat byte buffer, with optional
   per-instruction trace. A debug aid, not a runtime — host `call`s are
   stubbed.
+- **`JitNaiveDate` / `JitNaiveTime` / `JitNaiveDateTime`** (feature
+  `chrono`) — `JitParam`/`JitArg` newtypes for `chrono` naive date/time,
+  lowering to scalar immediates.
 
 ## Example
 
@@ -98,9 +101,9 @@ fixed-arity `[Value; N]` shape would silently drop lanes. See
 
 ## Cargo features
 
-Both features are off by default. Enable them with
-`cargo add lower-ir-utils --features disas,sim` (or
-`cargo test --features disas,sim`).
+All optional features are off by default. Enable them with
+`cargo add lower-ir-utils --features disas,sim,chrono` (or
+`cargo test --features disas,sim,chrono`).
 
 ### `disas` — machine-code disassembly
 
@@ -144,6 +147,31 @@ let result = sim.run(&func, &[SimValue::I64(10), SimValue::I64(32)]);
 result.dump();
 ```
 
+### `chrono` — naive date/time wrappers
+
+Pulls in `chrono` (default features off) and exposes newtype wrappers in
+`lower_ir_utils::external::chrono` (re-exported at the crate root as
+`JitNaiveDate`, `JitNaiveTime`, `JitNaiveDateTime`). Each lowers to plain
+`iconst` scalars — no host pointers — so non-`'static` values are fine.
+`JitNaiveTime` uses two `I32` lanes (seconds from midnight, then
+nanoseconds) so leap-second encodings round-trip injectively.
+
+```rust
+use chrono::NaiveDate;
+use lower_ir_utils::{jit_export, JitNaiveDate};
+
+#[jit_export]
+fn days_since_ce(d: i32) -> i32 {
+    d
+}
+
+// …declare `days_since_ce` in your module, then:
+let date = NaiveDate::from_ymd_opt(2026, 5, 21).unwrap();
+days_since_ce_jit::call(&mut bcx, &mut module, ext_id, JitNaiveDate(date));
+```
+
+See `tests/chrono_jit_integration.rs` for end-to-end JIT coverage.
+
 ## Layout
 
 - `src/abi.rs` — `JitParam` / `JitArg` traits and impls.
@@ -152,17 +180,19 @@ result.dump();
 - `src/disasm.rs` — `define_function_with_disasm`, `format_disassembly`
   (feature `disas`).
 - `src/sim.rs` — `Simulator`, `SimValue`, `SimResult` (feature `sim`).
+- `src/external/` — foreign-type `JitParam`/`JitArg` wrappers (feature-gated;
+  `chrono` submodule today).
 - `macros/` — proc-macro crate exporting `#[jit_export]`.
 - `tests/` — integration tests (`jit_integration`, `define_function`,
-  `abi_unit`, `jit_export`, `disasm`, `sim`) plus an `external_consumer`
-  workspace.
+  `abi_unit`, `jit_export`, `disasm`, `sim`, `chrono_*`) plus an
+  `external_consumer` workspace.
 
 ## Building
 
 ```
 cargo build
 cargo test
-cargo test --features disas,sim    # exercises the optional modules
+cargo test --features disas,sim,chrono    # exercises the optional modules
 ```
 
 Targets Cranelift 0.131. Tested on x86_64 Linux (System V ABI). The `&str` /

@@ -74,10 +74,24 @@
 //! - Macros: **`jit_signature!`**, **`jit_call!`**, **`define_jit_fn!`** (exported at
 //!   the crate root).
 //! - **`define_function`**, **[`IntoReturns`]**: declare and define a function in one step.
-//! - Attribute macro: **`jit_export`** (re-export from `lower_ir_utils_macros`).
+//! - Attribute macro: **`jit_export`** (re-export from `lower_ir_utils_macros`). The
+//!   generated `<fn>_jit` module includes **`try_declare`** (fallible) alongside **`declare`**.
+//! - Tuple returns from **`#[jit_export]`**: `<fn>_jit::call` returns
+//!   [`Inst`](cranelift_codegen::ir::Inst); use `bcx.inst_results(inst)` — see the README
+//!   "Tuple returns" section.
 //!
-//! The crate README (also on docs.rs) adds another runnable sketch and links to more
-//! integration tests.
+//! # Optional Cargo features
+//!
+//! All optional features are **off by default** (`docs.rs` builds with `all-features = true`).
+//!
+//! - **`disas`** — [`disasm`] module: [`define_function_with_disasm`], [`format_disassembly`]
+//!   (Capstone side-by-side opcode dumps).
+//! - **`sim`** — [`sim`] module: [`Simulator`](sim::Simulator) IR interpreter over a flat byte
+//!   buffer (debug aid; host `call`s are stubbed).
+//! - **`chrono`** — [`external::chrono`] wrappers [`JitNaiveDate`], [`JitNaiveTime`],
+//!   [`JitNaiveDateTime`] for naive `chrono` date/time types.
+//!
+//! The crate README (also on docs.rs) adds runnable sketches and links to integration tests.
 
 pub mod abi;
 pub mod builder;

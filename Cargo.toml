@@ -32,7 +32,7 @@ sim = []
 chrono = ["dep:chrono"]
 
 [dependencies]
-cranelift = "0.131"
+cranelift = "0.132"
 cranelift-jit = "0.131"
 cranelift-module = "0.131"
 cranelift-codegen = "0.131"

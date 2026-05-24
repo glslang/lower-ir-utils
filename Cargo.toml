@@ -43,4 +43,4 @@ capstone = { version = "0.14", optional = true }
 chrono = { version = "0.4", default-features = false, optional = true }
 
 [dev-dependencies]
-cranelift-native = "0.131"
+cranelift-native = "0.132"

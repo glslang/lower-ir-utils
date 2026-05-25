@@ -32,15 +32,15 @@ sim = []
 chrono = ["dep:chrono"]
 
 [dependencies]
-cranelift = "0.131"
-cranelift-jit = "0.131"
-cranelift-module = "0.131"
-cranelift-codegen = "0.131"
-cranelift-frontend = "0.131"
+cranelift = "0.132"
+cranelift-jit = "0.132"
+cranelift-module = "0.132"
+cranelift-codegen = "0.132"
+cranelift-frontend = "0.132"
 smallvec = "1"
 lower-ir-utils-macros = { path = "macros", version = "0.2.0" }
 capstone = { version = "0.14", optional = true }
 chrono = { version = "0.4", default-features = false, optional = true }
 
 [dev-dependencies]
-cranelift-native = "0.131"
+cranelift-native = "0.132"

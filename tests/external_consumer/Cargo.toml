@@ -19,4 +19,4 @@ publish = false
 lower-ir-utils = { path = "../.." }
 
 [dev-dependencies]
-cranelift-native = "0.131"
+cranelift-native = "0.132"

@@ -26,6 +26,10 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      cranelift:
+        patterns:
+          - "cranelift*"
 
   - package-ecosystem: github-actions
     directory: "/"

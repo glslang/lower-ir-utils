@@ -65,7 +65,7 @@ use std::io::{self, Write};
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{
-    types, Block, ExternalName, Function, InstructionData, Opcode, Type, Value,
+    Block, ExternalName, Function, InstructionData, Opcode, Type, Value, types,
 };
 
 /// A concrete value bound to a Cranelift SSA `Value` during simulation.
@@ -294,7 +294,7 @@ impl Simulator {
                     memory: state.memory,
                     trace: state.trace,
                     error: Some(SimError::UnsupportedOpcode("(no entry block)".into())),
-                }
+                };
             }
         };
 
@@ -590,7 +590,7 @@ impl Simulator {
                         None => {
                             return Error(SimError::TypeMismatch(format!(
                                 "call result type {ty} not supported"
-                            )))
+                            )));
                         }
                     };
                     state.registers.insert(*v, zero);

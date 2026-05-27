@@ -36,13 +36,13 @@
 
 use std::fmt::{self, Write as _};
 
-use capstone::arch::{self, BuildsCapstone, BuildsCapstoneExtraMode, BuildsCapstoneSyntax};
 use capstone::Capstone;
+use capstone::arch::{self, BuildsCapstone, BuildsCapstoneExtraMode, BuildsCapstoneSyntax};
 use cranelift_codegen::isa::TargetIsa;
 use cranelift_frontend::FunctionBuilder;
 use cranelift_module::{FuncId, Linkage, Module, ModuleError};
 
-use crate::builder::{declare_and_build, IntoReturns};
+use crate::builder::{IntoReturns, declare_and_build};
 use cranelift_codegen::ir::{Signature, Value};
 
 /// Captured artifacts from a JIT compile: the raw machine code and a

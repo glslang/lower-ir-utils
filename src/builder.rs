@@ -7,8 +7,8 @@
 //! [`IntoReturns`] trait — so `()`, a single `Value`, `[Value; N]`, or
 //! `Vec<Value>` all work without ceremony.
 
-use cranelift_codegen::ir::{InstBuilder, Signature, UserFuncName, Value};
 use cranelift_codegen::Context;
+use cranelift_codegen::ir::{InstBuilder, Signature, UserFuncName, Value};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_module::{FuncId, Linkage, Module, ModuleResult};
 use smallvec::SmallVec;

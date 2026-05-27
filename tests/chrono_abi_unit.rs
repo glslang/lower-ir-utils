@@ -5,7 +5,7 @@
 
 #![cfg(feature = "chrono")]
 
-use cranelift_codegen::ir::{types, AbiParam, Type};
+use cranelift_codegen::ir::{AbiParam, Type, types};
 use lower_ir_utils::{JitNaiveDate, JitNaiveDateTime, JitNaiveTime, JitParam};
 
 const PTR64: Type = types::I64;

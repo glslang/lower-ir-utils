@@ -6,8 +6,8 @@
 
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{
-    types, AbiParam, ExtFuncData, ExternalName, Function, InstBuilder, MemFlags, Signature,
-    UserExternalName, UserFuncName,
+    AbiParam, ExtFuncData, ExternalName, Function, InstBuilder, MemFlags, Signature,
+    UserExternalName, UserFuncName, types,
 };
 use cranelift_codegen::isa::CallConv;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};

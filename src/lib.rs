@@ -152,11 +152,11 @@ pub mod runtime;
 pub mod sim;
 
 pub use abi::{JitArg, JitParam};
-pub use builder::{define_function, IntoReturns};
+pub use builder::{IntoReturns, define_function};
 #[cfg(feature = "disas")]
 pub use disasm::{
-    define_function_with_disasm, format_disassembly, DefineFunctionWithDisasmError, DisasmError,
-    JitDisasm,
+    DefineFunctionWithDisasmError, DisasmError, JitDisasm, define_function_with_disasm,
+    format_disassembly,
 };
 #[cfg(feature = "chrono")]
 pub use external::chrono::{JitNaiveDate, JitNaiveDateTime, JitNaiveTime};

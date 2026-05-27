@@ -20,7 +20,7 @@
 //! those paths are gated off on Windows x86_64; Windows aarch64 (AAPCS) and
 //! Linux/macOS on either arch are unaffected.
 
-use cranelift_codegen::ir::{types, AbiParam, InstBuilder, Type, Value};
+use cranelift_codegen::ir::{AbiParam, InstBuilder, Type, Value, types};
 use cranelift_frontend::FunctionBuilder;
 use smallvec::SmallVec;
 

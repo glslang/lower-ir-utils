@@ -7,7 +7,7 @@
 
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{default_libcall_names, Linkage, Module};
+use cranelift_module::{Linkage, Module, default_libcall_names};
 
 use lower_ir_utils::{define_function_with_disasm, format_disassembly, jit_signature};
 
@@ -75,8 +75,8 @@ fn format_disassembly_works_on_borrowed_bytes() {
         Linkage::Export,
         sig,
         |bcx, _module, _params| {
-            use cranelift_codegen::ir::types;
             use cranelift_codegen::ir::InstBuilder;
+            use cranelift_codegen::ir::types;
             bcx.ins().iconst(types::I64, 0)
         },
     )

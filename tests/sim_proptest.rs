@@ -26,13 +26,13 @@
 
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{
-    types, AbiParam, Function, InstBuilder, MemFlags, Signature, UserFuncName, Value,
+    AbiParam, Function, InstBuilder, MemFlags, Signature, UserFuncName, Value, types,
 };
 use cranelift_codegen::isa::CallConv;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{default_libcall_names, Linkage, Module};
+use cranelift_module::{Linkage, Module, default_libcall_names};
 
 use lower_ir_utils::define_function;
 use lower_ir_utils::sim::{SimError, SimValue, Simulator};

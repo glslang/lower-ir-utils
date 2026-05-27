@@ -3,7 +3,7 @@
 //! These don't need a full JIT — we just call `push_params` and inspect the
 //! resulting `AbiParam` vector.
 
-use cranelift_codegen::ir::{types, AbiParam, Type};
+use cranelift_codegen::ir::{AbiParam, Type, types};
 use lower_ir_utils::JitParam;
 
 const PTR64: Type = types::I64;

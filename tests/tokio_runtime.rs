@@ -6,7 +6,7 @@
 
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{default_libcall_names, Linkage, Module};
+use cranelift_module::{Linkage, Module, default_libcall_names};
 
 use lower_ir_utils::{define_jit_fn, jit_export, spawn_blocking_build};
 

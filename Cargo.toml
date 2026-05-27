@@ -5,7 +5,8 @@ exclude = ["tests/external_consumer"]
 [package]
 name = "lower-ir-utils"
 version = "0.2.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.93"
 authors = ["Gonçalo Carvalho"]
 description = "Helpers for mapping Rust types to Cranelift JIT signatures, lowering call arguments, and reducing module boilerplate."
 license = "MIT"

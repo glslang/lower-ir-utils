@@ -1,7 +1,8 @@
 [package]
 name = "lower-ir-utils-macros"
 version = "0.2.0"
-edition = "2021"
+edition = "2024"
+rust-version = "1.93"
 authors = ["Gonçalo Carvalho"]
 description = "Procedural macros for lower-ir-utils (`#[jit_export]` and supporting helpers)."
 license = "MIT"

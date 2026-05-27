@@ -48,6 +48,9 @@ giving you direct access to the underlying `FunctionBuilder` and `Module`.
 - **`JitNaiveDate` / `JitNaiveTime` / `JitNaiveDateTime`** (feature
   `chrono`) — `JitParam`/`JitArg` newtypes for `chrono` naive date/time,
   lowering to scalar immediates.
+- **`spawn_blocking_build`** (feature `tokio`) — runs the blocking Cranelift
+  compile/finalize step on tokio's blocking thread pool and hands the module
+  back, so an async caller never stalls the executor.
 
 ## Example
 
@@ -102,8 +105,8 @@ fixed-arity `[Value; N]` shape would silently drop lanes. See
 ## Cargo features
 
 All optional features are off by default. Enable them with
-`cargo add lower-ir-utils --features disas,sim,chrono` (or
-`cargo test --features disas,sim,chrono`).
+`cargo add lower-ir-utils --features disas,sim,chrono,tokio` (or
+`cargo test --features disas,sim,chrono,tokio`).
 
 ### `disas` — machine-code disassembly
 
@@ -172,6 +175,34 @@ days_since_ce_jit::call(&mut bcx, &mut module, ext_id, JitNaiveDate(date));
 
 See `tests/chrono_jit_integration.rs` for end-to-end JIT coverage.
 
+### `tokio` — async runtime integration
+
+Cranelift compilation — `JITModule::finalize_definitions()` and the per-function
+`define_function` step — is synchronous and CPU-bound. Running it on a tokio
+worker thread stalls the executor. `spawn_blocking_build` moves it onto
+`tokio::task::spawn_blocking` and returns the module so you can extract function
+pointers afterward:
+
+```rust
+let (module, wrap_id) = lower_ir_utils::spawn_blocking_build(module, move |m| {
+    let id = define_jit_fn!(m, "wrap", Linkage::Export, fn(i64) -> i64,
+        |bcx, m, p| double_i64_jit::call(bcx, m, ext_id, p[0])).unwrap();
+    m.finalize_definitions().unwrap();
+    id
+})
+.await;
+
+let f: extern "C" fn(i64) -> i64 =
+    unsafe { std::mem::transmute(module.get_finalized_function(wrap_id)) };
+assert_eq!(f(21), 42); // `module` must stay alive while `f` is callable.
+```
+
+Finalized function pointers are plain `extern "C" fn` (`Copy` + `Send`), so they
+can be stored and called from any task across `.await` — as long as the module,
+which owns the executable memory, stays alive. The library depends on tokio only
+with its `rt` feature, and only when this feature is enabled. See
+`tests/tokio_runtime.rs` for end-to-end coverage.
+
 ## Layout
 
 - `src/abi.rs` — `JitParam` / `JitArg` traits and impls.
@@ -182,17 +213,18 @@ See `tests/chrono_jit_integration.rs` for end-to-end JIT coverage.
 - `src/sim.rs` — `Simulator`, `SimValue`, `SimResult` (feature `sim`).
 - `src/external/` — foreign-type `JitParam`/`JitArg` wrappers (feature-gated;
   `chrono` submodule today).
+- `src/runtime.rs` — `spawn_blocking_build` async helper (feature `tokio`).
 - `macros/` — proc-macro crate exporting `#[jit_export]`.
 - `tests/` — integration tests (`jit_integration`, `define_function`,
-  `abi_unit`, `jit_export`, `disasm`, `sim`, `chrono_*`) plus an
-  `external_consumer` workspace.
+  `abi_unit`, `jit_export`, `disasm`, `sim`, `chrono_*`, `tokio_runtime`) plus
+  an `external_consumer` workspace.
 
 ## Building
 
 ```
 cargo build
 cargo test
-cargo test --features disas,sim,chrono    # exercises the optional modules
+cargo test --features disas,sim,chrono,tokio    # exercises the optional modules
 ```
 
 Targets Cranelift 0.131. Tested on x86_64 Linux (System V ABI). The `&str` /

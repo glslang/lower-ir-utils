@@ -67,6 +67,50 @@
 //! assert_eq!(f(2, 3), 5);
 //! ```
 //!
+//! # Using in an async runtime (tokio)
+//!
+//! Cranelift compilation — chiefly [`JITModule::finalize_definitions`] and the
+//! per-function `module.define_function` driven by [`define_function`] /
+//! [`define_jit_fn!`] — is a synchronous, CPU-bound, blocking step. Calling it
+//! directly on a tokio worker thread stalls the executor. Keep it off the async
+//! workers:
+//!
+//! - **Compile off-thread.** With the `tokio` feature, [`spawn_blocking_build`]
+//!   moves the module onto [`tokio::task::spawn_blocking`] and returns it so you
+//!   can pull function pointers out afterward. (Or call `spawn_blocking`
+//!   yourself.)
+//! - **Finalized function pointers are runtime-agnostic.** They are plain
+//!   `extern "C" fn` — `Copy` and `Send` — so once obtained they can be stored
+//!   and called from any task on any worker; awaiting between obtaining and
+//!   calling is fine.
+//! - **The module owns the executable memory.** It must outlive every call to
+//!   any function pointer obtained from it; keep it alive (in scope, an `Arc`,
+//!   or task-local state) for as long as the JITed code runs.
+//! - **Embedded immediates must stay valid.** [`JitArg`] for `&'static T`,
+//!   `&str`, `&[T]`, or `*const T` bakes a host address into the IR. Across
+//!   `.await` this is only sound when the data is genuinely `'static`; never
+//!   embed a pointer to data that may be dropped while a task is suspended.
+//!
+//! ```ignore
+//! let mut module = JITModule::new(jb); // imports registered on `jb` first
+//! let ext_id = double_i64_jit::declare(&mut module);
+//!
+//! let (module, wrap_id) = lower_ir_utils::spawn_blocking_build(module, move |m| {
+//!     let id = define_jit_fn!(m, "wrap", Linkage::Export, fn(i64) -> i64,
+//!         |bcx, m, p| double_i64_jit::call(bcx, m, ext_id, p[0])).unwrap();
+//!     m.finalize_definitions().unwrap();
+//!     id
+//! })
+//! .await;
+//!
+//! let f: extern "C" fn(i64) -> i64 =
+//!     unsafe { std::mem::transmute(module.get_finalized_function(wrap_id)) };
+//! assert_eq!(f(21), 42);
+//! // `module` must stay alive while `f` is callable.
+//! ```
+//!
+//! [`JITModule::finalize_definitions`]: cranelift_jit::JITModule::finalize_definitions
+//!
 //! # Main items
 //!
 //! - Traits: **[`JitParam`]** (Rust type → [`AbiParam`](cranelift_codegen::ir::AbiParam)s), **[`JitArg`]**
@@ -90,6 +134,8 @@
 //!   flat byte buffer (debug aid; host `call`s are stubbed).
 //! - **`chrono`** — `external::chrono` wrappers (`JitNaiveDate`, `JitNaiveTime`,
 //!   `JitNaiveDateTime`) for naive `chrono` date/time types.
+//! - **`tokio`** — `runtime` module (`spawn_blocking_build`): moves the blocking
+//!   Cranelift compile/finalize step onto tokio's blocking thread pool.
 //!
 //! The crate README (also on docs.rs) adds runnable sketches and links to integration tests.
 
@@ -100,6 +146,8 @@ pub mod disasm;
 #[cfg(feature = "chrono")]
 pub mod external;
 mod macros;
+#[cfg(feature = "tokio")]
+pub mod runtime;
 #[cfg(feature = "sim")]
 pub mod sim;
 
@@ -113,6 +161,8 @@ pub use disasm::{
 #[cfg(feature = "chrono")]
 pub use external::chrono::{JitNaiveDate, JitNaiveDateTime, JitNaiveTime};
 pub use lower_ir_utils_macros::jit_export;
+#[cfg(feature = "tokio")]
+pub use runtime::spawn_blocking_build;
 
 #[doc(hidden)]
 pub mod __reexport {

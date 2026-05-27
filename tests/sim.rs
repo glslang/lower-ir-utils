@@ -13,7 +13,7 @@ use cranelift_codegen::isa::CallConv;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 
 use lower_ir_utils::jit_call;
-use lower_ir_utils::sim::{SimValue, Simulator};
+use lower_ir_utils::sim::{SimError, SimValue, Simulator};
 
 fn empty_func(params: &[types::Type], returns: &[types::Type]) -> Function {
     let mut sig = Signature::new(CallConv::Fast);
@@ -458,4 +458,36 @@ fn icmp_imm_wraps_immediate_to_operand_width() {
     let result = sim.run(&func, &[SimValue::I8(0)]);
     assert!(result.error.is_none(), "{:?}", result.error);
     assert_eq!(result.returns, vec![SimValue::I8(0)]);
+}
+
+// 12. A function with a back-edge (a block that jumps to itself) would spin
+// forever; `max_steps` must break it with `StepLimitExceeded`.
+#[test]
+fn infinite_loop_halts_on_step_limit() {
+    let mut func = empty_func(&[], &[]);
+    let mut ctx = FunctionBuilderContext::new();
+    {
+        let mut bcx = FunctionBuilder::new(&mut func, &mut ctx);
+        let entry = bcx.create_block();
+        let loop_blk = bcx.create_block();
+        bcx.switch_to_block(entry);
+        bcx.ins().jump(loop_blk, &[]);
+        bcx.seal_block(entry);
+        bcx.switch_to_block(loop_blk);
+        bcx.ins().jump(loop_blk, &[]); // back-edge to itself
+        bcx.seal_block(loop_blk);
+        bcx.finalize();
+    }
+
+    let mut sim = Simulator::new(0);
+    sim.max_steps = 1_000; // keep the test fast
+    let result = sim.run(&func, &[]);
+    assert!(
+        matches!(
+            result.error,
+            Some(SimError::StepLimitExceeded { limit: 1_000 })
+        ),
+        "expected StepLimitExceeded, got {:?}",
+        result.error
+    );
 }

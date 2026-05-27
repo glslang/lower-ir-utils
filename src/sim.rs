@@ -169,6 +169,10 @@ pub enum SimError {
     /// A computed type doesn't match what the instruction expects (e.g.
     /// `iadd` on an `F32`).
     TypeMismatch(String),
+    /// Execution ran past [`Simulator::max_steps`] instructions without
+    /// reaching a `return` — almost always a function with a back-edge
+    /// (a loop), which this interpreter has no other way to break out of.
+    StepLimitExceeded { limit: usize },
 }
 
 impl fmt::Display for SimError {
@@ -185,6 +189,12 @@ impl fmt::Display for SimError {
             ),
             SimError::UndefinedValue(v) => write!(f, "undefined SSA value {v}"),
             SimError::TypeMismatch(s) => write!(f, "type mismatch: {s}"),
+            SimError::StepLimitExceeded { limit } => {
+                write!(
+                    f,
+                    "step limit exceeded ({limit} instructions) — possible infinite loop"
+                )
+            }
         }
     }
 }
@@ -213,6 +223,12 @@ pub struct SimResult {
     pub error: Option<SimError>,
 }
 
+/// Default instruction budget for [`Simulator::run`], used by
+/// [`Simulator::new`] and [`Simulator::with_memory`]. Generous enough that no
+/// realistic straight-line debug function comes close, while still bounding a
+/// runaway loop to a fraction of a second.
+pub const DEFAULT_MAX_STEPS: usize = 1_000_000;
+
 /// The interpreter.
 ///
 /// Build one with [`Simulator::new`] (zero-filled memory of the given size)
@@ -224,6 +240,13 @@ pub struct Simulator {
     /// If `true`, [`SimResult::trace`] is populated with one line per
     /// executed instruction. Defaults to `false`.
     pub trace: bool,
+    /// Maximum number of instructions [`Simulator::run`] will execute before
+    /// halting with [`SimError::StepLimitExceeded`]. Defaults to
+    /// [`DEFAULT_MAX_STEPS`]. The functions this crate's `define_function`
+    /// emits are straight-line, but hand-built or generated IR may contain a
+    /// back-edge; this is the only thing that stops such a loop from spinning
+    /// forever.
+    pub max_steps: usize,
 }
 
 impl Simulator {
@@ -232,6 +255,7 @@ impl Simulator {
         Self {
             memory: vec![0; size],
             trace: false,
+            max_steps: DEFAULT_MAX_STEPS,
         }
     }
 
@@ -241,6 +265,7 @@ impl Simulator {
         Self {
             memory: bytes,
             trace: false,
+            max_steps: DEFAULT_MAX_STEPS,
         }
     }
 
@@ -281,12 +306,27 @@ impl Simulator {
         let mut current = entry;
         let mut returns: Vec<SimValue> = Vec::new();
         let mut error: Option<SimError> = None;
+        let mut steps: usize = 0;
 
         'outer: loop {
             // Snapshot the inst sequence — iterator borrows the layout,
             // and we need to keep `func` borrowed read-only.
             let insts: Vec<_> = func.layout.block_insts(current).collect();
             for inst in insts {
+                // Bound total work so IR with a back-edge halts instead of
+                // spinning forever (see `max_steps`).
+                if steps >= self.max_steps {
+                    let err = SimError::StepLimitExceeded {
+                        limit: self.max_steps,
+                    };
+                    if state.record_trace {
+                        state.trace.push(format!("  ! halt: {err} at {inst}"));
+                    }
+                    error = Some(err);
+                    break 'outer;
+                }
+                steps += 1;
+
                 let inst_data = &func.dfg.insts[inst];
                 match Self::step(func, &mut state, inst, inst_data) {
                     StepResult::Continue => {}

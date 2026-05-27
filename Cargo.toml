@@ -30,6 +30,10 @@ sim = []
 # `chrono`'s naive date/time types (`JitNaiveDate`, `JitNaiveTime`,
 # `JitNaiveDateTime`). Pulls in `chrono` with default features off.
 chrono = ["dep:chrono"]
+# Enables the `runtime` module: `spawn_blocking_build`, a helper that moves the
+# blocking Cranelift compile/finalize step onto tokio's blocking thread pool.
+# Pulls in `tokio` with only the `rt` feature; tokio is not a default dependency.
+tokio = ["dep:tokio"]
 
 [dependencies]
 cranelift = "0.132"
@@ -41,6 +45,8 @@ smallvec = "1"
 lower-ir-utils-macros = { path = "macros", version = "0.2.0" }
 capstone = { version = "0.14", optional = true }
 chrono = { version = "0.4", default-features = false, optional = true }
+tokio = { version = "1", default-features = false, features = ["rt"], optional = true }
 
 [dev-dependencies]
 cranelift-native = "0.132"
+tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread", "macros"] }

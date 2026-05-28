@@ -69,6 +69,19 @@ use syn::{FnArg, ItemFn, PatType, ReturnType, Type, parse_macro_input};
 /// Mismatches surface as Cranelift verifier errors at best and Rust UB at
 /// worst. Treat the boundary as you would any other `extern "C"` boundary.
 ///
+/// # Limitations
+///
+/// **`async fn` is not supported.** The macro injects `extern "C"`, which an
+/// `async fn` cannot carry (an explicit non-Rust ABI on an `async fn` is a
+/// compile error). Even past that, an `async fn` returns an opaque
+/// `impl Future`, not its written output type, so the generated signature —
+/// derived from the syntactic return type — would describe the wrong ABI, and
+/// JIT machine code has no executor to poll the future anyway. Keep the async
+/// work on the host and expose a *synchronous* shim that drives the future to
+/// completion (e.g. via `tokio::runtime::Handle::block_on`), then annotate that
+/// shim with `#[jit_export]`. See the crate-level "Using in an async runtime
+/// (tokio)" docs for the full pattern.
+///
 /// # Panics
 ///
 /// The generated `declare` helper unwraps `declare_function` with `expect`. It will

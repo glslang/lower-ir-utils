@@ -109,6 +109,31 @@
 //! // `module` must stay alive while `f` is callable.
 //! ```
 //!
+//! ## Calling async work from JIT code
+//!
+//! JIT-compiled IR is straight-line synchronous machine code with no executor,
+//! so it cannot `.await`. An `async fn` therefore cannot be `#[jit_export]`ed:
+//! the macro's injected `extern "C"` is incompatible with `async`, and an
+//! `async fn` returns an opaque `impl Future` rather than its written output
+//! type. Bridge instead through a **synchronous shim** that drives the future to
+//! completion on the host, and annotate the shim with `#[jit_export]`:
+//!
+//! ```ignore
+//! async fn fetch(id: i64) -> i64 { /* ... */ }
+//!
+//! #[jit_export]
+//! fn fetch_sync(id: i64) -> i64 {
+//!     // Called on a blocking-pool thread (see below), not an async worker.
+//!     tokio::runtime::Handle::current().block_on(fetch(id))
+//! }
+//! ```
+//!
+//! Because the JIT call is synchronous and `block_on` blocks its thread, invoke
+//! the finalized function pointer off the async workers — e.g. inside
+//! [`tokio::task::spawn_blocking`], which pairs with [`spawn_blocking_build`].
+//! Calling `block_on` directly on an async worker would panic. See
+//! `tests/tokio_runtime.rs` for a runnable end-to-end version.
+//!
 //! [`JITModule::finalize_definitions`]: cranelift_jit::JITModule::finalize_definitions
 //!
 //! # Main items

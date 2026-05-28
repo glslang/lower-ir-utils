@@ -203,6 +203,24 @@ which owns the executable memory, stays alive. The library depends on tokio only
 with its `rt` feature, and only when this feature is enabled. See
 `tests/tokio_runtime.rs` for end-to-end coverage.
 
+**Async external functions aren't supported directly.** JIT IR is synchronous
+machine code with no executor, and `#[jit_export]` injects `extern "C"`, which an
+`async fn` can't carry. Bridge through a synchronous shim that drives the future
+to completion on the host, then export the shim:
+
+```rust
+async fn fetch(id: i64) -> i64 { /* ... */ }
+
+#[jit_export]
+fn fetch_sync(id: i64) -> i64 {
+    tokio::runtime::Handle::current().block_on(fetch(id))
+}
+```
+
+Invoke the resulting JIT function off the async workers (e.g. inside
+`tokio::task::spawn_blocking`) so the shim's `block_on` doesn't panic on a
+worker thread. `tests/tokio_runtime.rs` has a runnable example.
+
 ## Layout
 
 - `src/abi.rs` — `JitParam` / `JitArg` traits and impls.

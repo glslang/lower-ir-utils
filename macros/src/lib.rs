@@ -107,8 +107,15 @@ use syn::{FnArg, ItemFn, PatType, ReturnType, Type, parse_macro_input};
 ///   give you a fixed-arity array shape that's correct for every composition.
 #[proc_macro_attribute]
 pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    let mut input = parse_macro_input!(item as ItemFn);
+    let input = parse_macro_input!(item as ItemFn);
+    expand_jit_export(input).into()
+}
 
+// Core expansion, split out so it can be unit-tested: it works entirely in
+// `proc_macro2` terms (a `proc_macro::TokenStream` can't be constructed outside
+// the compiler). Returns either the generated helper module or a
+// `compile_error!` invocation.
+fn expand_jit_export(mut input: ItemFn) -> TokenStream2 {
     // Reject `async fn`. `async extern "C" fn` actually compiles (it only trips
     // `improper_ctypes_definitions`, which this macro silences), so without an
     // explicit check the helper would generate a signature for the *output*
@@ -124,8 +131,7 @@ pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
              the function actually returns. Wrap the async work in a synchronous shim \
              (e.g. `tokio::runtime::Handle::block_on`) and annotate that shim instead.",
         )
-        .to_compile_error()
-        .into();
+        .to_compile_error();
     }
 
     // Auto-inject `extern "C"` if no ABI was specified.
@@ -291,5 +297,42 @@ pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
         }
     };
 
-    TokenStream::from(expanded)
+    expanded
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_async_fn() {
+        let input: ItemFn = syn::parse_quote! {
+            async fn fetch(a: i64) -> i64 { a }
+        };
+        let out = expand_jit_export(input).to_string();
+        assert!(
+            out.contains("compile_error"),
+            "expected a compile_error, got: {out}"
+        );
+        assert!(
+            out.contains("async fn"),
+            "error should mention `async fn`: {out}"
+        );
+    }
+
+    #[test]
+    fn expands_plain_fn() {
+        let input: ItemFn = syn::parse_quote! {
+            fn add(a: i64, b: i64) -> i64 { a + b }
+        };
+        let out = expand_jit_export(input).to_string();
+        assert!(
+            !out.contains("compile_error"),
+            "should not reject a plain fn: {out}"
+        );
+        assert!(
+            out.contains("mod add_jit"),
+            "expected the helper module: {out}"
+        );
+    }
 }

@@ -204,9 +204,11 @@ with its `rt` feature, and only when this feature is enabled. See
 `tests/tokio_runtime.rs` for end-to-end coverage.
 
 **Async external functions aren't supported directly.** JIT IR is synchronous
-machine code with no executor, and `#[jit_export]` injects `extern "C"`, which an
-`async fn` can't carry. Bridge through a synchronous shim that drives the future
-to completion on the host, then export the shim:
+machine code with no executor, so `#[jit_export]` rejects an `async fn` with a
+compile error (its real return is an opaque future, not the written output type;
+`async extern "C" fn` would otherwise compile into a silent ABI mismatch).
+Bridge through a synchronous shim that drives the future to completion on the
+host, then export the shim:
 
 ```rust
 async fn fetch(id: i64) -> i64 { /* ... */ }

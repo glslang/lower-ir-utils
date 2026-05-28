@@ -71,16 +71,18 @@ use syn::{FnArg, ItemFn, PatType, ReturnType, Type, parse_macro_input};
 ///
 /// # Limitations
 ///
-/// **`async fn` is not supported.** The macro injects `extern "C"`, which an
-/// `async fn` cannot carry (an explicit non-Rust ABI on an `async fn` is a
-/// compile error). Even past that, an `async fn` returns an opaque
-/// `impl Future`, not its written output type, so the generated signature —
-/// derived from the syntactic return type — would describe the wrong ABI, and
-/// JIT machine code has no executor to poll the future anyway. Keep the async
-/// work on the host and expose a *synchronous* shim that drives the future to
-/// completion (e.g. via `tokio::runtime::Handle::block_on`), then annotate that
-/// shim with `#[jit_export]`. See the crate-level "Using in an async runtime
-/// (tokio)" docs for the full pattern.
+/// **`async fn` is rejected with a compile error.** An `async fn` returns an
+/// opaque `impl Future`, not its written output type, so the generated
+/// signature — derived from the syntactic return type — would describe the
+/// wrong ABI, and JIT machine code has no executor to poll the future anyway.
+/// Note that `async extern "C" fn` *does* compile (it only trips
+/// `improper_ctypes_definitions`, which this macro silences), so without the
+/// explicit rejection the mismatch would surface as UB at run time rather than
+/// at compile time. Keep the async work on the host and expose a *synchronous*
+/// shim that drives the future to completion (e.g. via
+/// `tokio::runtime::Handle::block_on`), then annotate that shim with
+/// `#[jit_export]`. See the crate-level "Using in an async runtime (tokio)"
+/// docs for the full pattern.
 ///
 /// # Panics
 ///
@@ -106,6 +108,25 @@ use syn::{FnArg, ItemFn, PatType, ReturnType, Type, parse_macro_input};
 #[proc_macro_attribute]
 pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut input = parse_macro_input!(item as ItemFn);
+
+    // Reject `async fn`. `async extern "C" fn` actually compiles (it only trips
+    // `improper_ctypes_definitions`, which this macro silences), so without an
+    // explicit check the helper would generate a signature for the *output*
+    // type while the real fn returns an opaque future by value — a silent ABI
+    // mismatch / UB. JIT code is synchronous and has no executor to poll a
+    // future regardless. Fail loudly and point at the sync-shim workaround.
+    if let Some(async_token) = &input.sig.asyncness {
+        return syn::Error::new_spanned(
+            async_token,
+            "#[jit_export] cannot be applied to an `async fn`: JIT call sites are \
+             synchronous machine code with no executor, and the generated signature \
+             would describe the future's output type rather than the opaque future \
+             the function actually returns. Wrap the async work in a synchronous shim \
+             (e.g. `tokio::runtime::Handle::block_on`) and annotate that shim instead.",
+        )
+        .to_compile_error()
+        .into();
+    }
 
     // Auto-inject `extern "C"` if no ABI was specified.
     if input.sig.abi.is_none() {

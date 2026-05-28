@@ -112,11 +112,13 @@
 //! ## Calling async work from JIT code
 //!
 //! JIT-compiled IR is straight-line synchronous machine code with no executor,
-//! so it cannot `.await`. An `async fn` therefore cannot be `#[jit_export]`ed:
-//! the macro's injected `extern "C"` is incompatible with `async`, and an
-//! `async fn` returns an opaque `impl Future` rather than its written output
-//! type. Bridge instead through a **synchronous shim** that drives the future to
-//! completion on the host, and annotate the shim with `#[jit_export]`:
+//! so it cannot `.await`. `#[jit_export]` therefore rejects an `async fn` with a
+//! compile error: an `async fn` returns an opaque `impl Future` rather than its
+//! written output type, so the generated signature would describe the wrong ABI
+//! (and `async extern "C" fn` compiles, so the mismatch would otherwise be a
+//! silent run-time UB rather than a compile error). Bridge instead through a
+//! **synchronous shim** that drives the future to completion on the host, and
+//! annotate the shim with `#[jit_export]`:
 //!
 //! ```ignore
 //! async fn fetch(id: i64) -> i64 { /* ... */ }

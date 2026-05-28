@@ -136,15 +136,24 @@ the macros.)
 
 What `default_call_conv()` resolves to per target:
 
-| Target                    | Cranelift `CallConv`            |
-| ------------------------- | ------------------------------- |
-| x86_64 Linux / macOS      | `SystemV`                       |
-| **x86_64 Windows**        | **`WindowsFastcall`** (MS x64)  |
-| aarch64 Linux / Windows   | `SystemV` (AAPCS lowering)      |
-| aarch64 macOS             | `AppleAarch64`                  |
+| Target                  | Cranelift `CallConv`                          |
+| ----------------------- | --------------------------------------------- |
+| x86_64 Linux / macOS    | `SystemV`                                     |
+| aarch64 Linux           | `SystemV` (AAPCS lowering)                    |
+| aarch64 macOS           | `AppleAarch64`                                |
+| **x86_64 Windows**      | **`WindowsFastcall`** (MS x64 ABI)            |
+| **aarch64 Windows**     | **`WindowsFastcall`** (AAPCS-style aggregates) |
 
 Notes:
 
+- **Every Windows target resolves to `WindowsFastcall`, regardless of
+  architecture.** target-lexicon maps `OperatingSystem::Windows` to
+  `WindowsFastcall` before it looks at the arch, so `aarch64-pc-windows-*`
+  reports `WindowsFastcall` too — *not* `SystemV`. The arch still decides the
+  actual register-level rules though: x86_64 uses the MS x64 aggregate rules
+  (§5), while aarch64 follows AAPCS-style aggregate passing. That split is why
+  the fat-pointer caveat below is specific to x86_64 Windows even though both
+  Windows targets share the `WindowsFastcall` name.
 - "fastcall" appears only in the narrow sense that Cranelift *names* the MS x64
   convention `WindowsFastcall`. **stdcall never appears.** These are all 64-bit
   conventions — classic 32-bit `__fastcall`/`__stdcall` are not in play.
@@ -206,11 +215,14 @@ return-area pointer, not by `x`.
 
 SysV classifies a 16-byte two-`INTEGER` aggregate into **two** registers — args
 in the next two slots, return in RAX:RDX — which matches the crate's two-`ptr_ty`
-lowering exactly. AAPCS (aarch64) does the analogous thing. Only
-`WindowsFastcall` diverges by collapsing the aggregate to a single pointer (arg)
-or an sret pointer (return).
+lowering exactly. AAPCS (aarch64) does the analogous thing, *including on
+Windows*: even though `aarch64-pc-windows-*` reports the `WindowsFastcall`
+`CallConv` name (§4), its aggregate rules are AAPCS-style, so a 16-byte `&str`
+still rides in two registers and the lowering holds. Only `WindowsFastcall`
+**on x86_64** diverges, collapsing the aggregate to a single pointer (arg) or an
+sret pointer (return).
 
 That is precisely why the fat-pointer (`&str`, `&[T]`, `&mut [T]`) tests are
-`#[ignore]`'d on `x86_64-pc-windows-*` and nowhere else
-(`tests/jit_integration.rs:67-69`), as documented in the `abi` module header
-(`src/abi.rs:13-21`).
+`#[ignore]`'d on `x86_64-pc-windows-*` and nowhere else — *not* on aarch64
+Windows (`tests/jit_integration.rs:67-69`), as documented in the `abi` module
+header (`src/abi.rs:13-21`).

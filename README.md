@@ -223,6 +223,14 @@ Invoke the resulting JIT function off the async workers (e.g. inside
 `tokio::task::spawn_blocking`) so the shim's `block_on` doesn't panic on a
 worker thread. `tests/tokio_runtime.rs` has a runnable example.
 
+## Documentation
+
+- [ABI & calling conventions](docs/abi-and-calling-conventions.md) — how Rust
+  types cross the JIT boundary: pointer passing vs. `#[repr(C)]`, the
+  opaque-handle pattern for non-`repr(C)` types, returning strings/owned data,
+  the platform-default calling convention, and the Windows-x64 fat-pointer
+  caveat. Each claim cites the source it describes.
+
 ## Layout
 
 - `src/abi.rs` — `JitParam` / `JitArg` traits and impls.
@@ -235,6 +243,7 @@ worker thread. `tests/tokio_runtime.rs` has a runnable example.
   `chrono` submodule today).
 - `src/runtime.rs` — `spawn_blocking_build` async helper (feature `tokio`).
 - `macros/` — proc-macro crate exporting `#[jit_export]`.
+- `docs/` — long-form references (`abi-and-calling-conventions.md`).
 - `tests/` — integration tests (`jit_integration`, `define_function`,
   `abi_unit`, `jit_export`, `disasm`, `sim`, `chrono_*`, `tokio_runtime`) plus
   an `external_consumer` workspace.

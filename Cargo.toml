@@ -4,7 +4,7 @@ exclude = ["tests/external_consumer"]
 
 [package]
 name = "lower-ir-utils"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.93"
 authors = ["Gonçalo Carvalho"]
@@ -43,7 +43,7 @@ cranelift-module = "0.132"
 cranelift-codegen = "0.132"
 cranelift-frontend = "0.132"
 smallvec = "1"
-lower-ir-utils-macros = { path = "macros", version = "0.2.0" }
+lower-ir-utils-macros = { path = "macros", version = "0.2.1" }
 capstone = { version = "0.14", optional = true }
 chrono = { version = "0.4", default-features = false, optional = true }
 tokio = { version = "1", default-features = false, features = ["rt"], optional = true }

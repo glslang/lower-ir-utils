@@ -33,14 +33,13 @@ reviews:
     drafts: false
     base_branches:
       - "main"
-
-tools:
-  clippy:
-    enabled: true
-  actionlint:
-    enabled: true
-  markdownlint:
-    enabled: true
+  tools:
+    clippy:
+      enabled: true
+    actionlint:
+      enabled: true
+    markdownlint:
+      enabled: true
 
 chat:
   auto_reply: true

@@ -6,6 +6,7 @@
 [![crates.io](https://img.shields.io/crates/v/lower-ir-utils.svg)](https://crates.io/crates/lower-ir-utils)
 [![docs.rs](https://img.shields.io/docsrs/lower-ir-utils)](https://docs.rs/lower-ir-utils)
 [![License: MIT](https://img.shields.io/crates/l/lower-ir-utils.svg)](LICENSE)
+![CodeRabbit Pull Request Reviews](https://img.shields.io/coderabbit/prs/github/glslang/lower-ir-utils?utm_source=oss&utm_medium=github&utm_campaign=glslang%2Flower-ir-utils&labelColor=171717&color=FF570A&link=https%3A%2F%2Fcoderabbit.ai&label=CodeRabbit+Reviews)
 
 Helpers for bridging Rust types to [Cranelift](https://cranelift.dev/) JIT
 signatures and call sites. The crate trims the boilerplate of declaring

@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# https://docs.coderabbit.ai/getting-started/yaml-configuration
+# Comment "@coderabbitai configuration" on a PR to export current settings.
+
+language: "en-US"
+
+reviews:
+  profile: "assertive"
+  high_level_summary: true
+  poem: false
+  collapse_walkthrough: true
+  path_filters:
+    - "!**/Cargo.lock"
+    - "!**/target/**"
+  path_instructions:
+    - path: "**/*.rs"
+      instructions: |
+        This crate is a thin Cranelift JIT helper layer (not a compiler). Review with that in mind.
+
+        - Keep `JitParam::push_params` and `JitArg::lower` in sync: N ABI params must produce N lowered values in the same order.
+        - Declarative macros must reference Cranelift/smallvec via `$crate::__reexport::...`, not assume downstream deps.
+        - Avoid new `unsafe` except obvious FFI test glue; do not paper over verifier failures with unwrap retries.
+        - Do not broaden `'static` on `&str`, slices, or pointer/reference `JitArg` impls without addressing JIT lifetime safety.
+        - New optional functionality should stay behind Cargo features; keep default dependencies minimal.
+        - Public APIs need rustdoc matching the existing style; use `# Example` blocks marked ```ignore``` when a live Module is required.
+        - Call out cross-platform/ABI implications (fat pointers, Windows MSVC, x86_64 vs aarch64) when relevant.
+        - Proc-macro changes should mention testing `tests/jit_export.rs` and `tests/external_consumer/`.
+    - path: ".github/workflows/**"
+      instructions: |
+        CI sets `RUSTFLAGS=-D warnings` and runs fmt, clippy, doc, and nextest. Flag workflow changes that weaken those gates.
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "main"
+
+tools:
+  clippy:
+    enabled: true
+  actionlint:
+    enabled: true
+  markdownlint:
+    enabled: true
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  code_guidelines:
+    enabled: true

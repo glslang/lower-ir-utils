@@ -851,21 +851,19 @@ fn format_call_args(args: &[SimValue], memory: &[u8]) -> String {
         let v = args[i];
         // Heuristic: an i64 followed by another i64 in [1..=64] pointing
         // into memory is probably a (ptr, len) fat pointer. Show a preview.
-        if let SimValue::I64(p) = v {
-            if let Some(SimValue::I64(l)) = args.get(i + 1).copied() {
-                if (1..=64).contains(&l) {
-                    let lo = p as u64 as usize;
-                    let hi = lo.saturating_add(l as usize);
-                    if hi <= memory.len() {
-                        let bytes = &memory[lo..hi];
-                        if let Ok(s) = std::str::from_utf8(bytes) {
-                            parts.push(format!("{v} -> {s:?}"));
-                            parts.push(format!("{}", args[i + 1]));
-                            i += 2;
-                            continue;
-                        }
-                    }
-                }
+        if let SimValue::I64(p) = v
+            && let Some(SimValue::I64(l)) = args.get(i + 1).copied()
+            && (1..=64).contains(&l)
+        {
+            let lo = p as u64 as usize;
+            let hi = lo.saturating_add(l as usize);
+            if hi <= memory.len()
+                && let Ok(s) = std::str::from_utf8(&memory[lo..hi])
+            {
+                parts.push(format!("{v} -> {s:?}"));
+                parts.push(format!("{}", args[i + 1]));
+                i += 2;
+                continue;
             }
         }
         parts.push(format!("{v}"));
@@ -957,17 +955,17 @@ fn write_hexdump(w: &mut impl Write, mem: &[u8]) -> io::Result<()> {
         let is_full = chunk.len() == 16;
         let last = offset == mem.len().saturating_sub(1) / 16;
 
-        if is_full && !last {
-            if let Some(prev) = prev_row {
-                if prev == row {
-                    if !star_active {
-                        writeln!(w, "*")?;
-                        star_active = true;
-                    }
-                    prev_row = Some(row);
-                    continue;
-                }
+        if is_full
+            && !last
+            && let Some(prev) = prev_row
+            && prev == row
+        {
+            if !star_active {
+                writeln!(w, "*")?;
+                star_active = true;
             }
+            prev_row = Some(row);
+            continue;
         }
         star_active = false;
         write_hexdump_row(w, offset * 16, chunk)?;

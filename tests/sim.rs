@@ -6,14 +6,26 @@
 
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{
-    AbiParam, ExtFuncData, ExternalName, Function, InstBuilder, MemFlags, Signature,
+    AbiParam, ExtFuncData, ExternalName, Function, InstBuilder, MemFlagsData, Signature,
     UserExternalName, UserFuncName, types,
 };
-use cranelift_codegen::isa::CallConv;
+use cranelift_codegen::isa::{CallConv, TargetFrontendConfig};
+use cranelift_codegen::settings;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 
 use lower_ir_utils::jit_call;
 use lower_ir_utils::sim::{SimError, SimValue, Simulator};
+
+/// Host frontend config, required by `FunctionBuilder::finalize` since
+/// cranelift 0.134. These tests build bare `Function`s with no module, so it
+/// comes straight from the native ISA.
+fn frontend_config() -> TargetFrontendConfig {
+    cranelift_native::builder()
+        .unwrap()
+        .finish(settings::Flags::new(settings::builder()))
+        .unwrap()
+        .frontend_config()
+}
 
 fn empty_func(params: &[types::Type], returns: &[types::Type]) -> Function {
     let mut sig = Signature::new(CallConv::Fast);
@@ -39,7 +51,7 @@ fn const_return() {
         bcx.seal_block(entry);
         let v = bcx.ins().iconst(types::I64, 42);
         bcx.ins().return_(&[v]);
-        bcx.finalize();
+        bcx.finalize(frontend_config());
     }
 
     let mut sim = Simulator::new(0);
@@ -61,10 +73,10 @@ fn arith_chain() {
         bcx.switch_to_block(entry);
         bcx.seal_block(entry);
         let a = bcx.block_params(entry)[0];
-        after_add = bcx.ins().iadd_imm(a, 1);
-        after_mul = bcx.ins().imul_imm(after_add, 2);
+        after_add = bcx.ins().iadd_imm_s(a, 1);
+        after_mul = bcx.ins().imul_imm_s(after_add, 2);
         bcx.ins().return_(&[after_mul]);
-        bcx.finalize();
+        bcx.finalize(frontend_config());
     }
 
     let mut sim = Simulator::new(0);
@@ -87,10 +99,10 @@ fn load_store() {
         bcx.switch_to_block(entry);
         bcx.seal_block(entry);
         let base = bcx.block_params(entry)[0];
-        let loaded = bcx.ins().load(types::I64, MemFlags::new(), base, 8);
-        bcx.ins().store(MemFlags::new(), loaded, base, 16);
+        let loaded = bcx.ins().load(types::I64, MemFlagsData::new(), base, 8);
+        bcx.ins().store(MemFlagsData::new(), loaded, base, 16);
         bcx.ins().return_(&[loaded]);
-        bcx.finalize();
+        bcx.finalize(frontend_config());
     }
 
     let mut mem = vec![0u8; 64];
@@ -130,7 +142,7 @@ fn branch_max() {
             bcx.switch_to_block(exit);
             let r = bcx.block_params(exit)[0];
             bcx.ins().return_(&[r]);
-            bcx.finalize();
+            bcx.finalize(frontend_config());
         }
         func
     }
@@ -173,7 +185,7 @@ fn loop_sum() {
         let acc = bcx.block_params(header)[1];
         let cmp = bcx.ins().icmp(IntCC::SignedLessThan, i, n);
         let next_acc = bcx.ins().iadd(acc, i);
-        let next_i = bcx.ins().iadd_imm(i, 1);
+        let next_i = bcx.ins().iadd_imm_s(i, 1);
         bcx.ins().brif(
             cmp,
             header,
@@ -187,7 +199,7 @@ fn loop_sum() {
         bcx.switch_to_block(exit);
         let r = bcx.block_params(exit)[0];
         bcx.ins().return_(&[r]);
-        bcx.finalize();
+        bcx.finalize(frontend_config());
     }
 
     let mut sim = Simulator::new(0);
@@ -229,7 +241,7 @@ fn call_stub() {
         let call = bcx.ins().call(func_ref, &[a, b]);
         let rs = bcx.inst_results(call).to_vec();
         bcx.ins().return_(&rs);
-        bcx.finalize();
+        bcx.finalize(frontend_config());
     }
 
     let mut sim = Simulator::new(0);
@@ -283,7 +295,7 @@ fn call_with_str() {
         let call = jit_call!(&mut bcx, types::I64, func_ref; "hello, world!");
         let rs = bcx.inst_results(call).to_vec();
         bcx.ins().return_(&rs);
-        bcx.finalize();
+        bcx.finalize(frontend_config());
     }
 
     let mut sim = Simulator::new(0);
@@ -315,7 +327,7 @@ fn dump_sections() {
         bcx.seal_block(entry);
         let v = bcx.ins().iconst(types::I64, 0x4142_4344);
         bcx.ins().return_(&[v]);
-        bcx.finalize();
+        bcx.finalize(frontend_config());
     }
 
     let mut mem = vec![0u8; 32];
@@ -349,9 +361,9 @@ fn bitcast_int_to_float() {
         bcx.switch_to_block(entry);
         bcx.seal_block(entry);
         let a = bcx.block_params(entry)[0];
-        let f = bcx.ins().bitcast(types::F64, MemFlags::new(), a);
+        let f = bcx.ins().bitcast(types::F64, MemFlagsData::new(), a);
         bcx.ins().return_(&[f]);
-        bcx.finalize();
+        bcx.finalize(frontend_config());
     }
 
     let bits = std::f64::consts::PI.to_bits() as i64;
@@ -375,7 +387,7 @@ fn uextend_zero_extends_narrow() {
         let a = bcx.block_params(entry)[0];
         let w = bcx.ins().uextend(types::I32, a);
         bcx.ins().return_(&[w]);
-        bcx.finalize();
+        bcx.finalize(frontend_config());
     }
 
     let mut sim = Simulator::new(0);
@@ -396,7 +408,7 @@ fn uextend_zero_extends_narrow() {
         let a = bcx.block_params(entry)[0];
         let w = bcx.ins().sextend(types::I32, a);
         bcx.ins().return_(&[w]);
-        bcx.finalize();
+        bcx.finalize(frontend_config());
     }
     let mut sim = Simulator::new(0);
     let result = sim.run(&func2, &[SimValue::I8(-1)]);
@@ -421,7 +433,7 @@ fn udiv_narrow_unsigned() {
         let b = bcx.block_params(entry)[1];
         let q = bcx.ins().udiv(a, b);
         bcx.ins().return_(&[q]);
-        bcx.finalize();
+        bcx.finalize(frontend_config());
     }
 
     // 200 unsigned is -56 signed in i8.
@@ -447,9 +459,9 @@ fn icmp_imm_wraps_immediate_to_operand_width() {
         bcx.switch_to_block(entry);
         bcx.seal_block(entry);
         let a = bcx.block_params(entry)[0];
-        let cmp = bcx.ins().icmp_imm(IntCC::SignedLessThan, a, 200);
+        let cmp = bcx.ins().icmp_imm_s(IntCC::SignedLessThan, a, 200);
         bcx.ins().return_(&[cmp]);
-        bcx.finalize();
+        bcx.finalize(frontend_config());
     }
 
     // a = 0, imm = 200 wraps to -56 as i8.
@@ -476,7 +488,7 @@ fn infinite_loop_halts_on_step_limit() {
         bcx.switch_to_block(loop_blk);
         bcx.ins().jump(loop_blk, &[]); // back-edge to itself
         bcx.seal_block(loop_blk);
-        bcx.finalize();
+        bcx.finalize(frontend_config());
     }
 
     let mut sim = Simulator::new(0);

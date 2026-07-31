@@ -34,7 +34,7 @@ fn body_returning_value_works() {
         "id",
         Linkage::Export,
         fn(i64) -> i64,
-        |bcx, _module, params| bcx.ins().iadd_imm(params[0], 1),
+        |bcx, _module, params| bcx.ins().iadd_imm_s(params[0], 1),
     )
     .unwrap();
 
@@ -104,7 +104,7 @@ fn body_returning_array_works() {
         fn(i64, i64) -> (i64, i64),
         |bcx, _module, params| {
             // Return (b, a*2).
-            let doubled = bcx.ins().imul_imm(params[0], 2);
+            let doubled = bcx.ins().imul_imm_s(params[0], 2);
             [params[1], doubled]
         },
     )
@@ -132,7 +132,7 @@ fn function_form_matches_macro_form() {
         "macro_form",
         Linkage::Export,
         fn(i64) -> i64,
-        |bcx, _module, params| bcx.ins().iadd_imm(params[0], 100),
+        |bcx, _module, params| bcx.ins().iadd_imm_s(params[0], 100),
     )
     .unwrap();
 
@@ -143,7 +143,7 @@ fn function_form_matches_macro_form() {
         "fn_form",
         Linkage::Export,
         sig,
-        |bcx, _module, params| bcx.ins().iadd_imm(params[0], 100),
+        |bcx, _module, params| bcx.ins().iadd_imm_s(params[0], 100),
     )
     .unwrap();
 

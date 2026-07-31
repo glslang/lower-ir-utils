@@ -121,7 +121,7 @@ fn unit_return_works() {
         let _inst: cranelift_codegen::ir::Inst =
             side_effect_jit::call(&mut bcx, &mut module, id, x);
         bcx.ins().return_(&[]);
-        bcx.finalize();
+        bcx.finalize(module.target_config());
     }
 
     module.define_function(wrap_id, &mut ctx).unwrap();
@@ -215,7 +215,7 @@ fn tuple_return_call_yields_inst_with_all_results() {
         let results: Vec<_> = bcx.inst_results(inst).to_vec();
         assert_eq!(results.len(), 2);
         bcx.ins().return_(&results);
-        bcx.finalize();
+        bcx.finalize(module.target_config());
     }
 
     module.define_function(wrap_id, &mut ctx).unwrap();
@@ -295,7 +295,7 @@ fn static_ref_lowers_as_immediate_pointer() {
         let static_ref: &'static i64 = &THE_NUMBER;
         let ret = deref_i64_jit::call(&mut bcx, &mut module, ext_id, static_ref);
         bcx.ins().return_(&[ret]);
-        bcx.finalize();
+        bcx.finalize(module.target_config());
     }
 
     module.define_function(wrap_id, &mut ctx).unwrap();
@@ -385,7 +385,7 @@ fn mixed_value_and_literal_args() {
         // prefix_v: dynamic Value; "abcdef": &'static str literal lowered as 2 iconsts.
         let ret = mix_jit::call(&mut bcx, &mut module, id, prefix_v, "abcdef");
         bcx.ins().return_(&[ret]);
-        bcx.finalize();
+        bcx.finalize(module.target_config());
     }
 
     module.define_function(wrap_id, &mut ctx).unwrap();

@@ -129,7 +129,7 @@ where
         let params: SmallVec<[Value; 8]> = bcx.block_params(entry).iter().copied().collect();
         let returns = body(&mut bcx, module, &params).into_returns();
         bcx.ins().return_(&returns);
-        bcx.finalize();
+        bcx.finalize(module.target_config());
     }
 
     Ok((func_id, ctx))

@@ -26,9 +26,9 @@
 
 use cranelift_codegen::ir::condcodes::IntCC;
 use cranelift_codegen::ir::{
-    AbiParam, Function, InstBuilder, MemFlags, Signature, UserFuncName, Value, types,
+    AbiParam, Function, InstBuilder, MemFlagsData, Signature, UserFuncName, Value, types,
 };
-use cranelift_codegen::isa::CallConv;
+use cranelift_codegen::isa::{CallConv, TargetFrontendConfig};
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext};
 use cranelift_jit::{JITBuilder, JITModule};
@@ -38,6 +38,17 @@ use lower_ir_utils::define_function;
 use lower_ir_utils::sim::{SimError, SimValue, Simulator};
 
 use proptest::prelude::*;
+
+/// Host frontend config, required by `FunctionBuilder::finalize` since
+/// cranelift 0.134. These generators build bare `Function`s with no module, so
+/// it comes straight from the native ISA.
+fn frontend_config() -> TargetFrontendConfig {
+    cranelift_native::builder()
+        .unwrap()
+        .finish(settings::Flags::new(settings::builder()))
+        .unwrap()
+        .frontend_config()
+}
 
 // ---------------------------------------------------------------------------
 // Expression AST. Every node evaluates to an i64, which keeps the generated
@@ -171,11 +182,11 @@ fn build(bcx: &mut FunctionBuilder, params: &[Value], e: &Expr) -> Value {
         }
         Expr::AddImm(a, imm) => {
             let x = build(bcx, params, a);
-            bcx.ins().iadd_imm(x, *imm)
+            bcx.ins().iadd_imm_s(x, *imm)
         }
         Expr::MulImm(a, imm) => {
             let x = build(bcx, params, a);
-            bcx.ins().imul_imm(x, *imm)
+            bcx.ins().imul_imm_s(x, *imm)
         }
         Expr::Neg(a) => {
             let x = build(bcx, params, a);
@@ -228,7 +239,7 @@ fn build_sim_func(e: &Expr) -> Function {
         let params: Vec<Value> = bcx.block_params(entry).to_vec();
         let v = build(&mut bcx, &params, e);
         bcx.ins().return_(&[v]);
-        bcx.finalize();
+        bcx.finalize(frontend_config());
     }
     func
 }
@@ -276,9 +287,11 @@ fn build_load_func(offset: i32) -> Function {
         bcx.switch_to_block(entry);
         bcx.seal_block(entry);
         let base = bcx.block_params(entry)[0];
-        let loaded = bcx.ins().load(types::I64, MemFlags::new(), base, offset);
+        let loaded = bcx
+            .ins()
+            .load(types::I64, MemFlagsData::new(), base, offset);
         bcx.ins().return_(&[loaded]);
-        bcx.finalize();
+        bcx.finalize(frontend_config());
     }
     func
 }
@@ -297,9 +310,9 @@ fn build_store_func(offset: i32) -> Function {
         let val = bcx
             .ins()
             .iconst(types::I64, 0xA5A5_A5A5_A5A5_A5A5_u64 as i64);
-        bcx.ins().store(MemFlags::new(), val, base, offset);
+        bcx.ins().store(MemFlagsData::new(), val, base, offset);
         bcx.ins().return_(&[]);
-        bcx.finalize();
+        bcx.finalize(frontend_config());
     }
     func
 }

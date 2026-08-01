@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 `lower-ir-utils` is a thin layer over Cranelift's JIT API (all `cranelift-*`
-crates pinned to `0.132`). It is **not** a compiler — it provides plumbing to:
+crates pinned to `0.134`). It is **not** a compiler — it provides plumbing to:
 
 1. Convert Rust types into Cranelift `AbiParam`s / `Signature`s (`JitParam`).
 2. Lower Rust values (constants or already-lowered `Value`s) into IR `Value`s
@@ -60,8 +60,12 @@ cargo test                                   # default-feature tests
 cargo test --features disas,sim,chrono,tokio # exercise the optional modules
 cargo test -p lower-ir-utils-macros          # macros crate alone
 cargo test --test jit_integration            # a single integration test file
-cargo nextest run --workspace --all-targets  # what CI actually runs
+cargo nextest run --workspace --all-targets --all-features  # what CI actually runs
 ```
+
+No feature is on by default, so `--all-features` is what makes the gated
+suites (`sim*`, `disasm`, `chrono_*`, `tokio_runtime`) compile at all — drop
+it and they become empty test binaries that report success without running.
 
 `cranelift-native` is a dev-dependency, so tests JIT-compile and **execute**
 generated code against the host ISA; they won't run on a target without a
@@ -72,7 +76,7 @@ following — run them before opening a PR:
 
 ```
 cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo doc --workspace --no-deps --all-features   # RUSTDOCFLAGS=-D warnings
 ```
 

@@ -63,9 +63,13 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@nextest
-      - run: cargo nextest run --workspace --all-targets
+      # --all-features on every platform: no feature is on by default, so
+      # without it the sim/disas/chrono/tokio suites compile to empty test
+      # binaries and never run. They are ABI-sensitive, so the non-x86_64
+      # and Windows targets are exactly where they need to run.
+      - run: cargo nextest run --workspace --all-targets --all-features
       - name: Doctests
-        run: cargo test --workspace --doc
+        run: cargo test --workspace --doc --all-features
       - name: External consumer
         working-directory: tests/external_consumer
         run: cargo nextest run --all-targets

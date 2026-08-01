@@ -1,0 +1,24 @@
+# Codecov configuration.
+#
+# `project` uses an explicit target rather than Codecov's `auto` default.
+# `auto` compares each commit against its parent with a 0% threshold, so any
+# dip fails the check — including the one-time re-baseline from measuring
+# coverage with `--all-features` (84% over 3 files -> ~72% over 7). The target
+# below reflects the crate as actually published; raise it as coverage grows.
+coverage:
+  status:
+    project:
+      default:
+        target: 70%
+        threshold: 1%
+    # Patch coverage is judged on the diff alone, so `auto` is the right
+    # default here — a PR should not regress the lines it touches.
+    patch:
+      default:
+        target: auto
+        threshold: 1%
+
+# Don't comment on PRs that don't move coverage (e.g. CI-only changes).
+comment:
+  layout: "reach, diff, files"
+  require_changes: true

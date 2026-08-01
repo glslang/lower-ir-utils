@@ -257,7 +257,7 @@ cargo test
 cargo test --features disas,sim,chrono,tokio    # exercises the optional modules
 ```
 
-Targets Cranelift 0.132. CI runs the test suite on x86_64 and aarch64 Linux,
+Targets Cranelift 0.134. CI runs the test suite on x86_64 and aarch64 Linux,
 aarch64 macOS, and x86_64 and aarch64 Windows. The `&str` / `&[T]` impls
 assume the platform passes fat pointers as separate `(ptr, len)` args; on
 platforms where that doesn't hold, prefer flat scalar params.

@@ -30,8 +30,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: taiki-e/install-action@nextest
+      # --all-features so the optional modules (sim, disas, chrono, runtime)
+      # are measured. Without it llvm-cov only ever sees abi.rs, builder.rs and
+      # the macros crate — i.e. a fraction of what actually ships, since
+      # docs.rs publishes with all-features too.
       - name: Generate coverage
-        run: cargo llvm-cov nextest --workspace --all-targets --lcov --output-path lcov.info
+        run: cargo llvm-cov nextest --workspace --all-targets --all-features --lcov --output-path lcov.info
       - name: Upload to Codecov
         uses: codecov/codecov-action@v7
         with:

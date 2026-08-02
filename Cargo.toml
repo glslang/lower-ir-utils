@@ -4,7 +4,7 @@ exclude = ["tests/external_consumer"]
 
 [package]
 name = "lower-ir-utils"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 rust-version = "1.93"
 authors = ["Gonçalo Carvalho"]
@@ -14,6 +14,18 @@ readme = "README.md"
 repository = "https://github.com/glslang/lower-ir-utils"
 keywords = ["cranelift", "jit", "codegen", "ir"]
 categories = ["development-tools", "compilers"]
+# Agent and CI tooling: no value to consumers, and `.claude/` isn't even tracked
+# in git, so 0.3.0 shipped a file no CI run or review ever saw. Note this is
+# `[package].exclude` (packaging) — the `exclude` under `[workspace]` above is a
+# different key that only controls workspace membership.
+exclude = [
+    ".claude",
+    ".github",
+    ".coderabbit.yaml",
+    "codecov.yml",
+    "AGENTS.md",
+    "CLAUDE.md",
+]
 
 [package.metadata.docs.rs]
 all-features = true

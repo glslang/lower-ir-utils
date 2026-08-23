@@ -49,11 +49,11 @@ chrono = ["dep:chrono"]
 tokio = ["dep:tokio"]
 
 [dependencies]
-cranelift = "0.134"
-cranelift-jit = "0.134"
-cranelift-module = "0.134"
-cranelift-codegen = "0.134"
-cranelift-frontend = "0.134"
+cranelift = "0.135"
+cranelift-jit = "0.135"
+cranelift-module = "0.135"
+cranelift-codegen = "0.135"
+cranelift-frontend = "0.135"
 smallvec = "1"
 lower-ir-utils-macros = { path = "macros", version = "0.3.0" }
 capstone = { version = "0.14", optional = true }
@@ -61,6 +61,6 @@ chrono = { version = "0.4", default-features = false, optional = true }
 tokio = { version = "1", default-features = false, features = ["rt"], optional = true }
 
 [dev-dependencies]
-cranelift-native = "0.134"
+cranelift-native = "0.135"
 tokio = { version = "1", default-features = false, features = ["rt", "rt-multi-thread", "macros"] }
 proptest = "1"

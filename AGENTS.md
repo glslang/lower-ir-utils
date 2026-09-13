@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`lower-ir-utils` is a Rust 2024 workspace for Cranelift JIT helper APIs, currently pinned to Cranelift `0.134` and Rust `1.93`. The root crate lives in `src/`: `abi.rs` defines `JitParam` and `JitArg`, `builder.rs` contains function-definition helpers, `macros.rs` exports declarative macros, and `lib.rs` handles re-exports plus the hidden `__reexport` module used by macros. Feature-gated modules are `disasm.rs` (`disas`), `sim.rs` (`sim`), `runtime.rs` (`tokio`), and `external/chrono.rs` (`chrono`). The `macros/` member is the proc-macro crate for `#[jit_export]`. Integration tests are in `tests/`; `tests/external_consumer/` is excluded from the workspace and checks downstream use without direct Cranelift dependencies.
+`lower-ir-utils` is a Rust 2024 workspace for Cranelift JIT helper APIs, currently pinned to Cranelift `0.135` and Rust `1.95`. The root crate lives in `src/`: `abi.rs` defines `JitParam` and `JitArg`, `builder.rs` contains function-definition helpers, `macros.rs` exports declarative macros, and `lib.rs` handles re-exports plus the hidden `__reexport` module used by macros. Feature-gated modules are `disasm.rs` (`disas`), `sim.rs` (`sim`), `runtime.rs` (`tokio`), and `external/chrono.rs` (`chrono`). The `macros/` member is the proc-macro crate for `#[jit_export]`. Integration tests are in `tests/`; `tests/external_consumer/` is excluded from the workspace and checks downstream use without direct Cranelift dependencies.
 
 ## Build, Test, and Development Commands
 

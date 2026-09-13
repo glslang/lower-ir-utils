@@ -4,9 +4,9 @@ exclude = ["tests/external_consumer"]
 
 [package]
 name = "lower-ir-utils"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
-rust-version = "1.93"
+rust-version = "1.95"
 authors = ["Gonçalo Carvalho"]
 description = "Helpers for mapping Rust types to Cranelift JIT signatures, lowering call arguments, and reducing module boilerplate."
 license = "MIT"
@@ -55,7 +55,7 @@ cranelift-module = "0.135"
 cranelift-codegen = "0.135"
 cranelift-frontend = "0.135"
 smallvec = "1"
-lower-ir-utils-macros = { path = "macros", version = "0.3.0" }
+lower-ir-utils-macros = { path = "macros", version = "0.4.0" }
 capstone = { version = "0.14", optional = true }
 chrono = { version = "0.4", default-features = false, optional = true }
 tokio = { version = "1", default-features = false, features = ["rt"], optional = true }

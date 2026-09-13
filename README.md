@@ -114,6 +114,8 @@ keep its storage valid and exclusively borrowed during the call.
 an explicit Cranelift signature; those values do not describe a Rust tuple ABI.
 See [the report assessment](docs/openvuln-assessment.md) for findings and scope.
 
+See [the changelog](CHANGELOG.md) for release notes.
+
 ## Cargo features
 
 All optional features are off by default. Enable them with
@@ -267,8 +269,8 @@ cargo test
 cargo test --features disas,sim,chrono,tokio    # exercises the optional modules
 ```
 
-Targets Cranelift 0.135. CI runs the test suite on x86_64 and aarch64 Linux,
-aarch64 macOS, and x86_64 and aarch64 Windows. Native signatures use explicit
+Requires Rust 1.95 (edition 2024) and targets Cranelift 0.135. CI runs the test
+suite on x86_64 and aarch64 Linux, aarch64 macOS, and x86_64 and aarch64 Windows. Native signatures use explicit
 scalars and thin pointers on every platform.
 
 ## License

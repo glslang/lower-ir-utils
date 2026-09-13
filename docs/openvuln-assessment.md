@@ -85,9 +85,9 @@ The proc macro no longer suppresses the FFI lint or offers tuple-return helper
 behavior. It also rejects explicitly non-C calling conventions, since its
 signature generator always uses the module's native default convention.
 
-This is a **breaking API correction** and should be released accordingly.
-The crate versions have not been changed or published. Migration is to separate
-scalar parameters and explicit caller-owned output storage. Static string/slice
+This is a **breaking API correction**, included in the 0.4.0 release.
+Migration is to separate scalar parameters and explicit caller-owned output
+storage. Static string/slice
 and chrono `JitArg` lowering remains available, with existing lifetime bounds.
 Multi-result IR remains supported through explicit Cranelift signatures for
 JIT-to-JIT calls. See [the ABI guide](abi-and-calling-conventions.md) and

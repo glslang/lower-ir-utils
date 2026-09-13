@@ -20,7 +20,8 @@ runnable examples for each feature.
 
 - Root crate `lower-ir-utils` (`src/`):
   - `abi.rs` — `JitParam` / `JitArg` traits, plus impls for scalars,
-    pointers, references, `&str`, `&[T]`, and small tuples.
+    thin pointers/references, plus `JitArg` constant lowering for static strings/slices.
+    Tuples, fat pointers, and chrono wrappers are rejected as native signature types.
   - `builder.rs` — `define_function` + `IntoReturns`.
   - `macros.rs` — `jit_signature!`, `jit_call!`, `define_jit_fn!`.
   - `lib.rs` — re-exports and a hidden `__reexport` module that the macros
@@ -30,7 +31,7 @@ runnable examples for each feature.
     (feature `disas`, pulls in `capstone`).
   - `sim.rs` — `Simulator` / `SimValue` / `SimResult`, a small Cranelift IR
     interpreter over a flat byte buffer (feature `sim`, no extra deps).
-  - `external/` — foreign-type `JitParam`/`JitArg` wrappers; `chrono.rs`
+  - `external/` — foreign-type `JitArg` constant-lowering wrappers; `chrono.rs`
     today (feature `chrono`).
   - `runtime.rs` — `spawn_blocking_build` async helper (feature `tokio`).
 - Workspace member `macros/` — proc-macro crate exporting `#[jit_export]`.
@@ -81,8 +82,7 @@ cargo doc --workspace --no-deps --all-features   # RUSTDOCFLAGS=-D warnings
 ```
 
 CI runs the test matrix on x86_64 + aarch64 Linux, aarch64 macOS, and x86_64
-+ aarch64 Windows, so changes must hold across ABIs (see the `&str`/`&[T]`
-fat-pointer note below). Doctests and the `external_consumer` crate run as
++ aarch64 Windows, so changes must hold across ABIs. Doctests and the `external_consumer` crate run as
 separate steps. Miri is scoped to `cargo miri test --test abi_unit` — the
 only test with no JIT invocation, since Cranelift's JIT path (FFI + generated
 machine code) can't execute under Miri.
@@ -91,16 +91,14 @@ machine code) can't execute under Miri.
 
 - **Macros must reference Cranelift through `$crate::__reexport::...`**, not
   by assuming the consumer has the dep in scope. Same for `smallvec`.
-- **`JitParam` and `JitArg` must stay self-consistent.** If a type pushes N
-  `AbiParam`s in `push_params`, its `JitArg::lower` must emit exactly N
-  `Value`s in the same order. Mismatches surface as confusing Cranelift
-  verifier errors at runtime.
-- **`#[jit_export]` auto-injects `extern "C"`** when no ABI is given and
-  silences `improper_ctypes_definitions` so `&str` etc. are usable. Don't
-  remove that without a plan for the lints it'll re-enable. It also **rejects
-  `async fn` with a compile error** — JIT IR is synchronous machine code, and
-  an `async extern "C" fn` would compile into a silent ABI mismatch (real
-  return is an opaque future). Bridge async work through a sync shim.
+- **`JitParam` is an unsafe native scalar/unit ABI contract.** Custom impls must
+  match Rust's C argument and return encoding at every parameter position. If
+  the type also implements `JitArg`, counts, types, and encoding must agree.
+  Never restore aggregate flattening based only on size or field order.
+- **`#[jit_export]` auto-injects `extern "C"`** when no ABI is given and rejects
+  explicitly different ABIs. It does not suppress `improper_ctypes_definitions`.
+  Tuples, fat pointers, and chrono wrappers must use scalar shims or explicit
+  output pointers. It also rejects `async fn`; bridge async work through a sync shim.
 - **Doc comments are first-class.** Match the existing thorough rustdoc style
   for new public items. Use `# Example` blocks marked ```ignore``` since most
   snippets need a live `Module`.

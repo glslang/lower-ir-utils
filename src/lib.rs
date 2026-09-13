@@ -4,7 +4,7 @@
 //! [`FunctionBuilder`](cranelift_frontend::FunctionBuilder) boilerplate while leaving the
 //! underlying APIs in your hands.
 //!
-//! **Cranelift / crate versions.** This crate targets **Cranelift 0.131** (see
+//! **Cranelift / crate versions.** This crate targets **Cranelift 0.135** (see
 //! dependencies in `Cargo.toml`). Use matching `cranelift-*` versions in your
 //! project to avoid subtle ABI or API skew.
 //!
@@ -14,13 +14,16 @@
 //!
 //! # Platform and ABI notes
 //!
-//! [`JitParam`] / [`JitArg`] model `&str` and slices as **two machine words**
-//! (data pointer and length), matching how separate `(ptr, len)` arguments look in
-//! Cranelift. That matches common 64-bit C ABIs (e.g. separate scalar args).
-//! **`#[jit_export]`** injects `extern "C"` when none is specified and allows
-//! `improper_ctypes_definitions` so you can write `&str` in Rust signatures on targets
-//! that pass fat pointers compatibly with that layout—on platforms where that does
-//! not hold, flatten parameters to scalars explicitly.
+//! Native signatures support scalars, thin pointers/references, and unit.
+//! Tuples, fat pointers (`&str`, slices), and chrono wrappers are rejected:
+//! flattening their fields does not implement Rust's platform C ABI. Declare
+//! separate scalar parameters and use caller-owned output pointers for multiple
+//! results. [`JitArg`] still lowers static strings/slices and chrono constants
+//! into those explicit scalar parameters through [`jit_call!`].
+//!
+//! `#[jit_export]` uses only the native `extern "C"` convention. Custom
+//! [`JitParam`] implementations require `unsafe impl` and must establish native
+//! ABI compatibility, not merely matching IR lane counts.
 //!
 //! # Example (end-to-end JIT)
 //!
@@ -147,10 +150,6 @@
 //! - **`define_function`**, **[`IntoReturns`]**: declare and define a function in one step.
 //! - Attribute macro: **`jit_export`** (re-export from `lower_ir_utils_macros`). The
 //!   generated `<fn>_jit` module includes **`try_declare`** (fallible) alongside **`declare`**.
-//! - Tuple returns from **`#[jit_export]`**: `<fn>_jit::call` returns
-//!   [`Inst`](cranelift_codegen::ir::Inst); use `bcx.inst_results(inst)` — see the README
-//!   "Tuple returns" section.
-//!
 //! # Optional Cargo features
 //!
 //! All optional features are **off by default** (`docs.rs` builds with `all-features = true`).

@@ -1,10 +1,10 @@
-//! [`JitParam`] / [`JitArg`] wrappers for `chrono`'s naive date/time types.
+//! [`JitArg`] constant-lowering wrappers for `chrono`'s naive date/time types.
 //!
 //! Enabled by the `chrono` Cargo feature. Each wrapper is a `pub` newtype
 //! around the corresponding `chrono` type and lowers to plain integer
 //! constants:
 //!
-//! | Wrapper              | ABI shape           | Encoding                                                                  |
+//! | Wrapper              | Scalar lanes           | Encoding                                                                  |
 //! |----------------------|---------------------|---------------------------------------------------------------------------|
 //! | [`JitNaiveDate`]     | one `I32`           | [`NaiveDate::num_days_from_ce`]                                           |
 //! | [`JitNaiveTime`]     | `I32` then `I32`    | `num_seconds_from_midnight()`, then [`Timelike::nanosecond`]              |
@@ -15,6 +15,12 @@
 //! [`NaiveTime::from_num_seconds_from_midnight_opt`] for the time (it
 //! accepts the leap-second `nano >= 1_000_000_000` case unchanged), and
 //! pairing the two for [`NaiveDateTime`].
+//!
+//! These wrappers are **not** native parameter or return types and do not
+//! implement [`crate::JitParam`]. Their chrono memory representation differs
+//! from these scalar encodings. Declare separate `i32` parameters, lower a
+//! wrapper with [`crate::jit_call!`], and validate the scalars with the `*_opt`
+//! constructors in the host shim. For multiple results, use output pointers.
 //!
 //! # Lifetimes
 //!
@@ -36,13 +42,13 @@
 //! `(secs=59, nano=1_000_000_000)` matched `(secs=60, nano=0)`).
 
 use ::chrono::{Datelike, NaiveDate, NaiveDateTime, NaiveTime, Timelike};
-use cranelift_codegen::ir::{AbiParam, Type, Value};
+use cranelift_codegen::ir::{Type, Value};
 use cranelift_frontend::FunctionBuilder;
 use smallvec::SmallVec;
 
-use crate::abi::{JitArg, JitParam};
+use crate::abi::JitArg;
 
-/// Newtype wrapper carrying a [`NaiveDate`] across the JIT ABI boundary as a
+/// Constant-lowering wrapper encoding a [`NaiveDate`] for explicit scalar JIT calls as a
 /// single `I32` scalar (days from year 1 CE).
 ///
 /// The JIT-callee side should reconstruct the date with
@@ -66,10 +72,41 @@ use crate::abi::{JitArg, JitParam};
 ///     },
 /// )?;
 /// ```
+///
+/// This wrapper cannot be used as a native parameter or return type:
+///
+/// ```compile_fail,E0277
+/// use lower_ir_utils::JitNaiveDate as Alias;
+/// #[lower_ir_utils::jit_export]
+/// fn invalid(_: Alias) {}
+/// ```
+///
+/// ```compile_fail,E0277
+/// use lower_ir_utils::JitNaiveDate as Alias;
+/// #[lower_ir_utils::jit_export]
+/// fn invalid() -> Alias { panic!() }
+/// ```
+///
+/// ```compile_fail,E0277
+/// use lower_ir_utils::JitNaiveDate as Alias;
+/// fn build(module: &lower_ir_utils::__reexport::cranelift_jit::JITModule) {
+///     let _ = lower_ir_utils::jit_signature!(module; fn(Alias));
+/// }
+/// ```
+///
+/// ```compile_fail,E0277
+/// use lower_ir_utils::JitNaiveDate as Alias;
+/// fn build(module: &mut lower_ir_utils::__reexport::cranelift_jit::JITModule) {
+///     let _ = lower_ir_utils::define_jit_fn!(
+///         module, "invalid", lower_ir_utils::__reexport::cranelift_module::Linkage::Export,
+///         fn() -> Alias, |_, _, _| (),
+///     );
+/// }
+/// ```
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct JitNaiveDate(pub NaiveDate);
 
-/// Newtype wrapper carrying a [`NaiveTime`] across the JIT ABI boundary as
+/// Constant-lowering wrapper encoding a [`NaiveTime`] for explicit scalar JIT calls as
 /// two `I32` scalars: `num_seconds_from_midnight()` first, then
 /// [`Timelike::nanosecond`].
 ///
@@ -78,14 +115,76 @@ pub struct JitNaiveDate(pub NaiveDate);
 /// `chrono`'s leap-second representation, where `nanosecond()` may exceed
 /// `1_000_000_000`. The host can reconstruct the value with
 /// [`NaiveTime::from_num_seconds_from_midnight_opt(secs, nano)`].
+///
+/// This wrapper cannot be used as a native parameter or return type:
+///
+/// ```compile_fail,E0277
+/// use lower_ir_utils::JitNaiveTime as Alias;
+/// #[lower_ir_utils::jit_export]
+/// fn invalid(_: Alias) {}
+/// ```
+///
+/// ```compile_fail,E0277
+/// use lower_ir_utils::JitNaiveTime as Alias;
+/// #[lower_ir_utils::jit_export]
+/// fn invalid() -> Alias { panic!() }
+/// ```
+///
+/// ```compile_fail,E0277
+/// use lower_ir_utils::JitNaiveTime as Alias;
+/// fn build(module: &lower_ir_utils::__reexport::cranelift_jit::JITModule) {
+///     let _ = lower_ir_utils::jit_signature!(module; fn(Alias));
+/// }
+/// ```
+///
+/// ```compile_fail,E0277
+/// use lower_ir_utils::JitNaiveTime as Alias;
+/// fn build(module: &mut lower_ir_utils::__reexport::cranelift_jit::JITModule) {
+///     let _ = lower_ir_utils::define_jit_fn!(
+///         module, "invalid", lower_ir_utils::__reexport::cranelift_module::Linkage::Export,
+///         fn() -> Alias, |_, _, _| (),
+///     );
+/// }
+/// ```
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct JitNaiveTime(pub NaiveTime);
 
-/// Newtype wrapper carrying a [`NaiveDateTime`] across the JIT ABI boundary
+/// Constant-lowering wrapper encoding a [`NaiveDateTime`] for explicit scalar JIT calls
 /// as three `I32` scalars: days-from-CE, seconds-from-midnight, nanosecond.
 /// The order is date scalars first, then time scalars — the same
 /// concatenation [`JitNaiveDate`] and [`JitNaiveTime`] would produce on
 /// their own.
+///
+/// This wrapper cannot be used as a native parameter or return type:
+///
+/// ```compile_fail,E0277
+/// use lower_ir_utils::JitNaiveDateTime as Alias;
+/// #[lower_ir_utils::jit_export]
+/// fn invalid(_: Alias) {}
+/// ```
+///
+/// ```compile_fail,E0277
+/// use lower_ir_utils::JitNaiveDateTime as Alias;
+/// #[lower_ir_utils::jit_export]
+/// fn invalid() -> Alias { panic!() }
+/// ```
+///
+/// ```compile_fail,E0277
+/// use lower_ir_utils::JitNaiveDateTime as Alias;
+/// fn build(module: &lower_ir_utils::__reexport::cranelift_jit::JITModule) {
+///     let _ = lower_ir_utils::jit_signature!(module; fn(Alias));
+/// }
+/// ```
+///
+/// ```compile_fail,E0277
+/// use lower_ir_utils::JitNaiveDateTime as Alias;
+/// fn build(module: &mut lower_ir_utils::__reexport::cranelift_jit::JITModule) {
+///     let _ = lower_ir_utils::define_jit_fn!(
+///         module, "invalid", lower_ir_utils::__reexport::cranelift_module::Linkage::Export,
+///         fn() -> Alias, |_, _, _| (),
+///     );
+/// }
+/// ```
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct JitNaiveDateTime(pub NaiveDateTime);
 
@@ -131,22 +230,9 @@ impl From<JitNaiveDateTime> for NaiveDateTime {
     }
 }
 
-impl JitParam for JitNaiveDate {
-    fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type) {
-        <i32 as JitParam>::push_params(out, ptr_ty);
-    }
-}
-
 impl JitArg for JitNaiveDate {
     fn lower(self, bcx: &mut FunctionBuilder, ptr_ty: Type, out: &mut SmallVec<[Value; 8]>) {
         self.0.num_days_from_ce().lower(bcx, ptr_ty, out);
-    }
-}
-
-impl JitParam for JitNaiveTime {
-    fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type) {
-        <i32 as JitParam>::push_params(out, ptr_ty);
-        <i32 as JitParam>::push_params(out, ptr_ty);
     }
 }
 
@@ -157,13 +243,6 @@ impl JitArg for JitNaiveTime {
         // `NaiveTime::from_num_seconds_from_midnight_opt`.
         (self.0.num_seconds_from_midnight() as i32).lower(bcx, ptr_ty, out);
         (self.0.nanosecond() as i32).lower(bcx, ptr_ty, out);
-    }
-}
-
-impl JitParam for JitNaiveDateTime {
-    fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type) {
-        <JitNaiveDate as JitParam>::push_params(out, ptr_ty);
-        <JitNaiveTime as JitParam>::push_params(out, ptr_ty);
     }
 }
 

@@ -10,29 +10,39 @@
 //! correspondence between the signature types and the argument expressions; that
 //! is the caller's responsibility, exactly as it would be for `bcx.ins().call`.
 //!
-//! # Platform support
+//! # Native signatures
 //!
-//! The fat-pointer impls (`&str`, `&[T]`, `&mut [T]`) and the tuple `JitParam`
-//! impls assume the System V x86_64 / AAPCS rule that 16-byte aggregates ride
-//! in two consecutive registers. The Microsoft x64 ABI passes (and returns)
-//! them by hidden pointer instead, so on `x86_64-pc-windows-*` these lowerings
-//! produce a layout that does not match Rust's `extern "C"`. Tests covering
-//! those paths are gated off on Windows x86_64; Windows aarch64 (AAPCS) and
-//! Linux/macOS on either arch are unaffected.
+//! Signatures support scalars, thin pointers/references, and unit. Tuples,
+//! `&str`, slices, and chrono wrappers are not native signature types: expanding
+//! an aggregate into scalar lanes does not implement its platform C ABI.
+//! Pass separate scalar parameters and use explicit output pointers for multiple
+//! results. [`JitArg`] can still expand strings, slices, and chrono constants
+//! for calls to functions that explicitly declare those scalar parameters.
 
 use cranelift_codegen::ir::{AbiParam, InstBuilder, Type, Value, types};
 use cranelift_frontend::FunctionBuilder;
 use smallvec::SmallVec;
 
-/// Type-level mapping: a Rust type expands into zero or more Cranelift `AbiParam`s.
+/// Type-level mapping for a Rust type with a scalar (or unit) native C ABI.
+///
+/// Tuples, fat pointers, and chrono wrappers deliberately do not implement this
+/// trait, including through type aliases. Use separate scalar parameters or
+/// an explicit pointer to caller-owned output storage instead.
 ///
 /// # Safety
 ///
-/// Implementations must be self-consistent with [`JitArg`]: the number and types
-/// of `AbiParam`s pushed must match the number and types of `Value`s that the
-/// corresponding `JitArg::lower` implementation would emit.
-pub trait JitParam {
-    /// Append this type's parameters to `out`.
+/// An implementation must append exactly one scalar parameter, or none for a
+/// type ABI-equivalent to unit. Its encoding must match Rust's `extern "C"`
+/// argument AND return ABI on every supported target, at every parameter
+/// position (including register exhaustion). Matching size or field order alone
+/// is insufficient. If the type also implements [`JitArg`], its lowered values
+/// must match that encoding, count, and order.
+///
+/// Prefer delegating to the scalar field for a `#[repr(transparent)]` newtype.
+/// Do not implement this trait by flattening an aggregate.
+#[doc = include_str!("../docs/abi-rejections.md")]
+pub unsafe trait JitParam {
+    /// Append this type's parameter to `out`, or nothing for unit.
     fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type);
 }
 
@@ -60,14 +70,16 @@ pub trait JitArg {
 
 // ---------- JitParam impls ----------
 
-impl JitParam for () {
+// SAFETY: Unit contributes no argument or return value.
+unsafe impl JitParam for () {
     fn push_params(_out: &mut Vec<AbiParam>, _ptr_ty: Type) {}
 }
 
 macro_rules! impl_jit_param_scalar {
     ($($t:ty => $cl:expr),* $(,)?) => {
         $(
-            impl JitParam for $t {
+            // SAFETY: This primitive has the corresponding scalar C ABI.
+            unsafe impl JitParam for $t {
                 fn push_params(out: &mut Vec<AbiParam>, _ptr_ty: Type) {
                     out.push(AbiParam::new($cl));
                 }
@@ -93,7 +105,8 @@ impl_jit_param_scalar! {
 macro_rules! impl_jit_param_pointerlike {
     ($($t:ty),* $(,)?) => {
         $(
-            impl JitParam for $t {
+            // SAFETY: This primitive has the corresponding scalar C ABI.
+            unsafe impl JitParam for $t {
                 fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type) {
                     out.push(AbiParam::new(ptr_ty));
                 }
@@ -104,68 +117,33 @@ macro_rules! impl_jit_param_pointerlike {
 
 impl_jit_param_pointerlike!(usize, isize);
 
-impl<T: Sized> JitParam for *const T {
+// SAFETY: Sized pointees make this a thin pointer in the native C ABI.
+unsafe impl<T: Sized> JitParam for *const T {
     fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type) {
         out.push(AbiParam::new(ptr_ty));
     }
 }
 
-impl<T: Sized> JitParam for *mut T {
+// SAFETY: Sized pointees make this a thin pointer in the native C ABI.
+unsafe impl<T: Sized> JitParam for *mut T {
     fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type) {
         out.push(AbiParam::new(ptr_ty));
     }
 }
 
-impl<T: Sized> JitParam for &T {
+// SAFETY: Sized pointees make this a thin pointer in the native C ABI.
+unsafe impl<T: Sized> JitParam for &T {
     fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type) {
         out.push(AbiParam::new(ptr_ty));
     }
 }
 
-impl<T: Sized> JitParam for &mut T {
+// SAFETY: Sized pointees make this a thin pointer in the native C ABI.
+unsafe impl<T: Sized> JitParam for &mut T {
     fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type) {
         out.push(AbiParam::new(ptr_ty));
     }
 }
-
-impl JitParam for &str {
-    fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type) {
-        out.push(AbiParam::new(ptr_ty));
-        out.push(AbiParam::new(ptr_ty));
-    }
-}
-
-impl<T: Sized> JitParam for &[T] {
-    fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type) {
-        out.push(AbiParam::new(ptr_ty));
-        out.push(AbiParam::new(ptr_ty));
-    }
-}
-
-impl<T: Sized> JitParam for &mut [T] {
-    fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type) {
-        out.push(AbiParam::new(ptr_ty));
-        out.push(AbiParam::new(ptr_ty));
-    }
-}
-
-// Tuple impls let users express multi-value returns (or grouped params) as
-// `fn(...) -> (T1, T2)`. Each element contributes its own params in order.
-macro_rules! impl_jit_param_tuple {
-    ($($t:ident),+) => {
-        impl<$($t: JitParam),+> JitParam for ($($t,)+) {
-            fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type) {
-                $( <$t as JitParam>::push_params(out, ptr_ty); )+
-            }
-        }
-    };
-}
-
-impl_jit_param_tuple!(T1, T2);
-impl_jit_param_tuple!(T1, T2, T3);
-impl_jit_param_tuple!(T1, T2, T3, T4);
-impl_jit_param_tuple!(T1, T2, T3, T4, T5);
-impl_jit_param_tuple!(T1, T2, T3, T4, T5, T6);
 
 // ---------- JitArg impls ----------
 

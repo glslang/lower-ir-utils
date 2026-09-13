@@ -152,103 +152,44 @@ fn name_constant_matches_fn_name() {
 // ------------------------------------------------------------------
 // 5. Mixed args at the call site: per-position generics let us pass an
 //    already-lowered `Value` for one position and a Rust constant
-//    (a `&'static str` literal) for the next, in the same call.
+//    (a pointer and a length) for the next positions in the same call.
 // ------------------------------------------------------------------
 
 #[jit_export]
-fn mix(prefix_len: i64, key: &str) -> i64 {
-    prefix_len + key.len() as i64
+fn mix(prefix_len: i64, _key: *const u8, key_len: usize) -> i64 {
+    prefix_len + key_len as i64
 }
 
-// ------------------------------------------------------------------
-// 6. Tuple return: `#[jit_export] fn ... -> (T1, ..., TN)` makes `call`
-//    return the `Inst`, since the proc-macro can't statically know how many
-//    AbiParams JitParam will push (e.g. `&str` is 2). Caller pulls the
-//    actual results via `bcx.inst_results(inst)`. Earlier behavior silently
-//    dropped all but the first result.
-// ------------------------------------------------------------------
-
+// Multiple host results use explicit caller-owned output storage.
 #[jit_export]
-fn divmod(a: i64, b: i64) -> (i64, i64) {
-    (a / b, a % b)
+fn divmod(a: i64, b: i64, out: &mut [i64; 2]) {
+    *out = [a / b, a % b];
 }
 
-// Microsoft x64 returns 16-byte aggregates via a hidden out-pointer; this
-// crate emits (rax, rdx)-style returns, so `(i64, i64)` from extern "C" reads
-// garbage on windows-msvc. AAPCS (Windows aarch64, Linux/macOS) is unaffected.
-#[cfg_attr(all(target_os = "windows", target_arch = "x86_64"), ignore)]
 #[test]
-fn tuple_return_call_yields_inst_with_all_results() {
+fn multiple_results_use_output_pointer() {
     let mut jb = jit_builder();
     divmod_jit::register(&mut jb);
     let mut module = JITModule::new(jb);
-
-    // Signature reports two returns.
-    assert_eq!(divmod_jit::signature(&module).returns.len(), 2);
-
     let ext_id = divmod_jit::declare(&mut module);
-
-    let wrap_sig = jit_signature!(&module; fn(i64, i64) -> (i64, i64));
-    let wrap_id = module
-        .declare_function("wrap_divmod", Linkage::Export, &wrap_sig)
-        .unwrap();
-
-    let mut ctx = module.make_context();
-    ctx.func.signature = wrap_sig;
-    ctx.func.name = UserFuncName::user(0, wrap_id.as_u32());
-
-    let mut bcx_ctx = FunctionBuilderContext::new();
-    {
-        let mut bcx = FunctionBuilder::new(&mut ctx.func, &mut bcx_ctx);
-        let entry = bcx.create_block();
-        bcx.append_block_params_for_function_params(entry);
-        bcx.switch_to_block(entry);
-        bcx.seal_block(entry);
-        let a = bcx.block_params(entry)[0];
-        let b = bcx.block_params(entry)[1];
-
-        // For tuple-return callees, `call` yields the `Inst`; we extract all
-        // results ourselves. This stays correct regardless of how `JitParam`
-        // expands the tuple's elements.
-        let inst: cranelift_codegen::ir::Inst =
-            divmod_jit::call(&mut bcx, &mut module, ext_id, a, b);
-        let results: Vec<_> = bcx.inst_results(inst).to_vec();
-        assert_eq!(results.len(), 2);
-        bcx.ins().return_(&results);
-        bcx.finalize(module.target_config());
-    }
-
-    module.define_function(wrap_id, &mut ctx).unwrap();
-    module.clear_context(&mut ctx);
+    let id = lower_ir_utils::define_jit_fn!(
+        &mut module,
+        "wrap_divmod",
+        Linkage::Export,
+        fn(i64, i64, &mut [i64; 2]),
+        |bcx, module, p| {
+            divmod_jit::call(bcx, module, ext_id, p[0], p[1], p[2]);
+        },
+    )
+    .unwrap();
     module.finalize_definitions().unwrap();
-
-    let f: extern "C" fn(i64, i64) -> (i64, i64) =
-        unsafe { std::mem::transmute(module.get_finalized_function(wrap_id)) };
-    assert_eq!(f(17, 5), (3, 2));
-    assert_eq!(f(20, 4), (5, 0));
-}
-
-// ------------------------------------------------------------------
-// 6b. Regression for the fat-pointer-in-tuple case: a tuple element with
-//     a multi-AbiParam JitParam impl (here, `&'static str`) means tuple
-//     arity (2) and ABI return count (3) diverge. The macro must not
-//     pretend to know the arity statically — `call` should yield the
-//     `Inst` so `inst_results` gives all three Values.
-// ------------------------------------------------------------------
-
-#[jit_export]
-fn str_and_int() -> (&'static str, i64) {
-    ("hi", 7)
-}
-
-#[test]
-fn tuple_with_fat_pointer_return_signature_has_three_lanes() {
-    let mut jb = jit_builder();
-    str_and_int_jit::register(&mut jb);
-    let module = JITModule::new(jb);
-
-    // (&str, i64) → (ptr, len, i64) in the ABI.
-    assert_eq!(str_and_int_jit::signature(&module).returns.len(), 3);
+    let f: extern "C" fn(i64, i64, &mut [i64; 2]) =
+        unsafe { std::mem::transmute(module.get_finalized_function(id)) };
+    let mut out = [0; 2];
+    f(17, 5, &mut out);
+    assert_eq!(out, [3, 2]);
+    f(20, 4, &mut out);
+    assert_eq!(out, [5, 0]);
 }
 
 // ------------------------------------------------------------------
@@ -354,9 +295,6 @@ fn try_declare_surfaces_signature_conflict() {
     );
 }
 
-// Microsoft x64 passes 16-byte aggregates (`&str`) by hidden pointer; this
-// crate lowers them as two register params, so the callee reads garbage.
-#[cfg_attr(all(target_os = "windows", target_arch = "x86_64"), ignore)]
 #[test]
 fn mixed_value_and_literal_args() {
     let mut jb = jit_builder();
@@ -382,8 +320,15 @@ fn mixed_value_and_literal_args() {
         bcx.seal_block(entry);
         let prefix_v = bcx.block_params(entry)[0];
 
-        // prefix_v: dynamic Value; "abcdef": &'static str literal lowered as 2 iconsts.
-        let ret = mix_jit::call(&mut bcx, &mut module, id, prefix_v, "abcdef");
+        // A dynamic Value plus explicit pointer and length constants.
+        let ret = mix_jit::call(
+            &mut bcx,
+            &mut module,
+            id,
+            prefix_v,
+            "abcdef".as_ptr(),
+            6usize,
+        );
         bcx.ins().return_(&[ret]);
         bcx.finalize(module.target_config());
     }

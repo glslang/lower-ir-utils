@@ -61,6 +61,11 @@ impl IntoReturns for SmallVec<[Value; 4]> {
 /// entry block's parameters. Whatever it returns is wrapped via [`IntoReturns`]
 /// and emitted as the function's `return_` instruction.
 ///
+/// A manually supplied signature is an IR contract. Multi-value IR returns
+/// do not imply compatibility with Rust tuple returns. Calls crossing into
+/// Rust must use a matching native signature; use explicit output pointers
+/// for multiple host results.
+///
 /// # Example
 ///
 /// ```ignore

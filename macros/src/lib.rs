@@ -46,7 +46,8 @@ use syn::{FnArg, ItemFn, PatType, ReturnType, Type, parse_macro_input};
 /// ```
 ///
 /// Each `A_i: JitArg`, so users can pass either an already-lowered IR `Value`
-/// or a Rust constant (`&'static str`, `i64`, `*const T`, ...).
+/// or a Rust scalar constant (`i64`, `*const T`, ...). Use `jit_call!`
+/// when one argument expression expands into several scalar parameters.
 ///
 /// # Caller obligations (safety)
 ///
@@ -58,9 +59,6 @@ use syn::{FnArg, ItemFn, PatType, ReturnType, Type, parse_macro_input};
 ///
 /// - `&T` / `&mut T`: aligned, dereferenceable, point to a valid `T` for the
 ///   call's duration; `&mut T` must not alias any other live access.
-/// - `&str`: pointer + length describe UTF-8 bytes that live for the call.
-/// - `&[T]` / `&mut [T]`: pointer + length describe a valid slice of `T`s; the
-///   `&mut` form must not alias any other live access.
 /// - `bool`: the byte passed in must be exactly `0` or `1` (Rust UB otherwise).
 /// - Raw pointers (`*const T`, `*mut T`): the pointee must outlive every JIT
 ///   invocation when the pointer is embedded as an IR immediate; see the
@@ -76,8 +74,7 @@ use syn::{FnArg, ItemFn, PatType, ReturnType, Type, parse_macro_input};
 /// signature — derived from the syntactic return type — would describe the
 /// wrong ABI, and JIT machine code has no executor to poll the future anyway.
 /// Note that `async extern "C" fn` *does* compile (it only trips
-/// `improper_ctypes_definitions`, which this macro silences), so without the
-/// explicit rejection the mismatch would surface as UB at run time rather than
+/// `improper_ctypes_definitions`), so without explicit rejection the mismatch would surface as UB at run time rather than
 /// at compile time. Keep the async work on the host and expose a *synchronous*
 /// shim that drives the future to completion (e.g. via
 /// `tokio::runtime::Handle::block_on`), then annotate that shim with
@@ -97,14 +94,13 @@ use syn::{FnArg, ItemFn, PatType, ReturnType, Type, parse_macro_input};
 ///
 /// - `-> ()` (or no return): returns `cranelift_codegen::ir::Inst` — the call
 ///   instruction handle, useful for side-effect-only calls.
-/// - Single non-unit return (e.g. `-> i64`, `-> &str`): returns
-///   `cranelift_codegen::ir::Value`, the callee's first SSA result.
-/// - Tuple return `(T1, ..., TN)`: returns `cranelift_codegen::ir::Inst`. Use
-///   `bcx.inst_results(inst)` to get all SSA results in declaration order. The
-///   number of results is set by `JitParam::push_params` and may differ from
-///   the tuple's element count — fat-pointer types (`&str`, `&[T]`) and
-///   nested tuples each push more than one `AbiParam`, so the macro cannot
-///   give you a fixed-arity array shape that's correct for every composition.
+/// - Single non-unit return (e.g. `-> i64`): returns
+///   `cranelift_codegen::ir::Value`, the callee's SSA result.
+///
+/// Tuples, fat pointers (`&str`, slices), and chrono wrappers are rejected in
+/// signatures by `JitParam`, including aliases. Use explicit scalar arguments
+/// and caller-owned output pointers for multiple results. Only the native
+/// `extern "C"` ABI is supported.
 #[proc_macro_attribute]
 pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let input = parse_macro_input!(item as ItemFn);
@@ -117,8 +113,7 @@ pub fn jit_export(_attr: TokenStream, item: TokenStream) -> TokenStream {
 // `compile_error!` invocation.
 fn expand_jit_export(mut input: ItemFn) -> TokenStream2 {
     // Reject `async fn`. `async extern "C" fn` actually compiles (it only trips
-    // `improper_ctypes_definitions`, which this macro silences), so without an
-    // explicit check the helper would generate a signature for the *output*
+    // `improper_ctypes_definitions`), so without an explicit check the helper would generate a signature for the *output*
     // type while the real fn returns an opaque future by value — a silent ABI
     // mismatch / UB. JIT code is synchronous and has no executor to poll a
     // future regardless. Fail loudly and point at the sync-shim workaround.
@@ -139,13 +134,20 @@ fn expand_jit_export(mut input: ItemFn) -> TokenStream2 {
         input.sig.abi = Some(syn::parse_quote!(extern "C"));
     }
 
-    // Allow idiomatic Rust types like `&str` in the signature without nagging
-    // the user about `improper_ctypes_definitions`. This is fine on platforms
-    // where the fat-pointer ABI matches separate (ptr, len) args (e.g. SystemV
-    // x86_64); users targeting platforms that disagree should use flat params.
-    input.attrs.push(syn::parse_quote!(
-        #[allow(improper_ctypes_definitions)]
-    ));
+    // The generated Signature always uses the target's default C convention.
+    if input
+        .sig
+        .abi
+        .as_ref()
+        .and_then(|abi| abi.name.as_ref())
+        .is_some_and(|name| name.value() != "C")
+    {
+        return syn::Error::new_spanned(
+            &input.sig.abi,
+            "#[jit_export] requires the native C ABI; use extern \"C\" or omit the ABI",
+        )
+        .to_compile_error();
+    }
 
     let fn_name = input.sig.ident.clone();
     let fn_name_str = fn_name.to_string();
@@ -162,26 +164,13 @@ fn expand_jit_export(mut input: ItemFn) -> TokenStream2 {
         })
         .collect();
 
-    // Three return shapes:
-    //   - None: unit / no return — `call` yields the `Inst`.
-    //   - Single: one non-tuple, non-unit return — `call` yields a single `Value`.
-    //   - Multi: a tuple return — `call` yields the `Inst`, because the proc-macro
-    //     can only see syntactic arity (tuple-element count) while the actual
-    //     ABI-result count is decided by `JitParam` (e.g. `&str`/`&[T]` push two
-    //     AbiParams, nested tuples sum their elements). Returning the `Inst`
-    //     lets the caller pull the real values via `bcx.inst_results(inst)` —
-    //     correct for any composition.
-    enum ReturnShape<'a> {
-        Single(&'a Type),
-        Multi(&'a Type),
-    }
-
-    let return_shape: Option<ReturnShape> = match &input.sig.output {
+    // Unit calls expose the instruction; scalar calls expose their SSA result.
+    // All type aliases are checked by JitParam during signature generation.
+    let return_type = match &input.sig.output {
         ReturnType::Default => None,
         ReturnType::Type(_, ty) => match ty.as_ref() {
             Type::Tuple(t) if t.elems.is_empty() => None,
-            Type::Tuple(_) => Some(ReturnShape::Multi(ty.as_ref())),
-            other => Some(ReturnShape::Single(other)),
+            other => Some(other),
         },
     };
 
@@ -201,8 +190,8 @@ fn expand_jit_export(mut input: ItemFn) -> TokenStream2 {
         })
         .collect();
 
-    let sig_return_pushes = match &return_shape {
-        Some(ReturnShape::Single(rt)) | Some(ReturnShape::Multi(rt)) => quote! {
+    let sig_return_pushes = match &return_type {
+        Some(rt) => quote! {
             <#rt as ::lower_ir_utils::JitParam>::push_params(&mut sig.returns, ptr_ty);
         },
         None => quote! {},
@@ -217,12 +206,12 @@ fn expand_jit_export(mut input: ItemFn) -> TokenStream2 {
         })
         .collect();
 
-    let (call_ret_ty, call_ret_expr) = match &return_shape {
-        None | Some(ReturnShape::Multi(_)) => (
+    let (call_ret_ty, call_ret_expr) = match &return_type {
+        None => (
             quote! { ::lower_ir_utils::__reexport::cranelift_codegen::ir::Inst },
             quote! { __inst },
         ),
-        Some(ReturnShape::Single(_)) => (
+        Some(_) => (
             quote! { ::lower_ir_utils::__reexport::cranelift_codegen::ir::Value },
             quote! { bcx.inst_results(__inst)[0] },
         ),
@@ -318,6 +307,19 @@ mod tests {
             out.contains("async fn"),
             "error should mention `async fn`: {out}"
         );
+    }
+
+    #[test]
+    fn rejects_non_c_abi() {
+        for abi in ["Rust", "C-unwind", "system", "sysv64"] {
+            let input: ItemFn = syn::parse_str(&format!(
+                "extern \"{abi}\" fn identity(x: i64) -> i64 {{ x }}"
+            ))
+            .unwrap();
+            let out = expand_jit_export(input).to_string();
+            assert!(out.contains("compile_error"), "{abi}: {out}");
+            assert!(out.contains("native C ABI"), "{abi}: {out}");
+        }
     }
 
     #[test]

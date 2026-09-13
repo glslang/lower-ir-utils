@@ -39,7 +39,7 @@ disas = ["dep:capstone"]
 # finalized `Function` against a flat byte buffer, then prints memory,
 # the SSA register table, and final return values. No extra deps.
 sim = []
-# Enables the `external::chrono` module: `JitParam`/`JitArg` wrappers for
+# Enables the `external::chrono` module: `JitArg` constant wrappers for
 # `chrono`'s naive date/time types (`JitNaiveDate`, `JitNaiveTime`,
 # `JitNaiveDateTime`). Pulls in `chrono` with default features off.
 chrono = ["dep:chrono"]

@@ -89,31 +89,40 @@ fn body_returning_unit_works() {
 //    returns; the `IntoReturns for [Value; N]` impl threads them through.
 // ------------------------------------------------------------------
 
-// Microsoft x64 returns 16-byte aggregates via a hidden out-pointer; this
-// crate emits (rax, rdx)-style returns, so `(i64, i64)` from extern "C" reads
-// garbage on windows-msvc. AAPCS (Windows aarch64, Linux/macOS) is unaffected.
-#[cfg_attr(all(target_os = "windows", target_arch = "x86_64"), ignore)]
 #[test]
 fn body_returning_array_works() {
+    // Multi-value IR returns remain available for JIT-to-JIT calls with an
+    // explicit Cranelift signature. Only the scalar wrapper crosses into Rust.
+    use cranelift_codegen::ir::{AbiParam, types};
     let mut module = JITModule::new(jit_builder());
-
-    let id = define_jit_fn!(
+    let mut sig = jit_signature!(&module; fn(i64, i64) -> i64);
+    sig.returns.push(AbiParam::new(types::I64));
+    sig.call_conv = cranelift_codegen::isa::CallConv::Fast;
+    let pair = define_function(
         &mut module,
         "swap_and_double",
+        Linkage::Local,
+        sig,
+        |bcx, _module, params| [params[1], bcx.ins().imul_imm_s(params[0], 2)],
+    )
+    .unwrap();
+    let id = define_jit_fn!(
+        &mut module,
+        "sum_pair",
         Linkage::Export,
-        fn(i64, i64) -> (i64, i64),
-        |bcx, _module, params| {
-            // Return (b, a*2).
-            let doubled = bcx.ins().imul_imm_s(params[0], 2);
-            [params[1], doubled]
+        fn(i64, i64) -> i64,
+        |bcx, module, params| {
+            let local = module.declare_func_in_func(pair, bcx.func);
+            let call = bcx.ins().call(local, params);
+            let values = bcx.inst_results(call).to_vec();
+            bcx.ins().iadd(values[0], values[1])
         },
     )
     .unwrap();
-
     module.finalize_definitions().unwrap();
-    let f: extern "C" fn(i64, i64) -> (i64, i64) =
+    let f: extern "C" fn(i64, i64) -> i64 =
         unsafe { std::mem::transmute(module.get_finalized_function(id)) };
-    assert_eq!(f(3, 7), (7, 6));
+    assert_eq!(f(3, 7), 13);
 }
 
 // ------------------------------------------------------------------

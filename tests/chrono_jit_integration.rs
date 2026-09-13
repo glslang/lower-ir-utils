@@ -197,3 +197,46 @@ fn lowers_naive_date_time_to_three_scalars() {
         unsafe { std::mem::transmute(module.get_finalized_function(wrap_id)) };
     assert_eq!(f(), expected);
 }
+
+#[jit_export]
+fn checked_datetime(days: i32, secs: i32, nano: i32, out: &mut [i32; 3]) -> bool {
+    let Some(date) = NaiveDate::from_num_days_from_ce_opt(days) else {
+        return false;
+    };
+    let Some(time) = NaiveTime::from_num_seconds_from_midnight_opt(secs as u32, nano as u32) else {
+        return false;
+    };
+    *out = [
+        date.num_days_from_ce(),
+        time.num_seconds_from_midnight() as i32,
+        time.nanosecond() as i32,
+    ];
+    true
+}
+
+#[test]
+fn scalar_datetime_shim_validates_values_and_preserves_trailing_pointer() {
+    let mut jb = jit_builder();
+    checked_datetime_jit::register(&mut jb);
+    let mut module = JITModule::new(jb);
+    let ext = checked_datetime_jit::declare(&mut module);
+    let id = define_jit_fn!(
+        &mut module,
+        "checked",
+        Linkage::Export,
+        fn(i32, i32, i32, &mut [i32; 3]) -> bool,
+        |bcx, module, p| checked_datetime_jit::call(bcx, module, ext, p[0], p[1], p[2], p[3]),
+    )
+    .unwrap();
+    module.finalize_definitions().unwrap();
+    let f: extern "C" fn(i32, i32, i32, &mut [i32; 3]) -> bool =
+        unsafe { std::mem::transmute(module.get_finalized_function(id)) };
+    // Day zero is valid in the wire encoding; leap-second nanos must survive.
+    let mut out = [-1; 3];
+    assert!(f(0, 59, 1_000_000_000, &mut out));
+    assert_eq!(out, [0, 59, 1_000_000_000]);
+    for invalid in [[i32::MAX, 0, 0], [0, 86_400, 0], [0, 0, 2_000_000_000]] {
+        assert!(!f(invalid[0], invalid[1], invalid[2], &mut out));
+        assert_eq!(out, [0, 59, 1_000_000_000]);
+    }
+}

@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 
+use cranelift_codegen::ir::InstBuilder;
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{Linkage, Module, default_libcall_names};
@@ -55,18 +56,17 @@ fn calls_extern_taking_i64() {
 }
 
 // ------------------------------------------------------------------
-// Test 2: (*const HashMap, &str) -> i64. Mixed Value + &'static str literal.
+// Test 2: explicit map/data/length parameters; a string literal supplies two lanes.
 // ------------------------------------------------------------------
 
 #[jit_export]
-fn lookup(map_ptr: *const HashMap<String, i64>, key: &str) -> i64 {
+fn lookup(map_ptr: *const HashMap<String, i64>, key_ptr: *const u8, key_len: usize) -> i64 {
+    // The caller supplies valid UTF-8 storage for the duration of the call.
+    let key = unsafe { std::str::from_utf8(std::slice::from_raw_parts(key_ptr, key_len)).unwrap() };
     let map = unsafe { &*map_ptr };
     *map.get(key).unwrap_or(&-1)
 }
 
-// Microsoft x64 passes 16-byte aggregates (`&str`) by hidden pointer; this
-// crate lowers them as two register params, so the callee reads garbage.
-#[cfg_attr(all(target_os = "windows", target_arch = "x86_64"), ignore)]
 #[test]
 fn calls_extern_with_map_pointer_and_static_str() {
     let mut jb = jit_builder();
@@ -81,7 +81,10 @@ fn calls_extern_with_map_pointer_and_static_str() {
         fn(*const HashMap<String, i64>) -> i64,
         |bcx, module, params| {
             // params[0]: Value passthrough; "answer": &'static str → 2 iconsts.
-            lookup_jit::call(bcx, module, ext_id, params[0], "answer")
+            let local = module.declare_func_in_func(ext_id, bcx.func);
+            let ptr_ty = module.target_config().pointer_type();
+            let inst = lower_ir_utils::jit_call!(bcx, ptr_ty, local; params[0], "answer");
+            bcx.inst_results(inst)[0]
         },
     )
     .unwrap();

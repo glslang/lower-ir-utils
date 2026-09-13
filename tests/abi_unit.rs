@@ -62,19 +62,23 @@ fn references_to_sized_are_one_pointer() {
 }
 
 #[test]
-fn str_is_two_pointers() {
-    assert_eq!(types_of(&collect::<&str>()), vec![PTR64, PTR64]);
-}
-
-#[test]
-fn slice_is_two_pointers() {
-    assert_eq!(types_of(&collect::<&[u8]>()), vec![PTR64, PTR64]);
-    assert_eq!(types_of(&collect::<&mut [i32]>()), vec![PTR64, PTR64]);
-}
-
-#[test]
 fn ptr_ty_is_threaded_through() {
     let mut v = Vec::new();
     <usize as JitParam>::push_params(&mut v, types::I32);
     assert_eq!(types_of(&v), vec![types::I32]);
+}
+
+#[test]
+fn transparent_custom_mapping_delegates_to_scalar() {
+    #[repr(transparent)]
+    struct Word(u64);
+
+    // SAFETY: repr(transparent) preserves u64's argument and return ABI.
+    unsafe impl JitParam for Word {
+        fn push_params(out: &mut Vec<AbiParam>, ptr_ty: Type) {
+            <u64 as JitParam>::push_params(out, ptr_ty);
+        }
+    }
+
+    assert_eq!(collect::<Word>(), collect::<u64>());
 }

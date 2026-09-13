@@ -52,9 +52,6 @@ fn add_compiles_and_runs() {
     assert_eq!(add(2, 3), 5);
 }
 
-// Microsoft x64 passes 16-byte aggregates (`&str`) by hidden pointer; this
-// crate lowers them as two register params, so the callee reads garbage.
-#[cfg_attr(all(target_os = "windows", target_arch = "x86_64"), ignore)]
 #[test]
 fn str_param_compiles_and_runs() {
     let mut jb = JITBuilder::with_isa(host_isa(), default_libcall_names());
@@ -64,7 +61,7 @@ fn str_param_compiles_and_runs() {
 
     let wrap_id = define_jit_fn!(
         &mut module, "wrap", Linkage::Export, fn() -> i64,
-        |bcx, module, _params| lookup_len_jit::call(bcx, module, ext_id, "external"),
+        |bcx, module, _params| lookup_len_jit::call(bcx, module, ext_id, "external".as_ptr(), 8usize),
     )
     .unwrap();
 

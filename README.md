@@ -16,7 +16,7 @@ giving you direct access to the underlying `FunctionBuilder` and `Module`.
 ## What it provides
 
 - **`JitParam`** — type-level: how a Rust type expands into Cranelift
-  `AbiParam`s (e.g. `&str` becomes `(ptr, len)`).
+  `AbiParam`s for native C signatures (scalars, thin pointers, and unit).
 - **`JitArg`** — value-level: how a Rust value lowers into one or more
   `cranelift_codegen::ir::Value`s. Implemented for already-lowered `Value`s,
   integer/float constants, raw pointers, and `&'static str` / `&'static [T]`.
@@ -47,7 +47,7 @@ giving you direct access to the underlying `FunctionBuilder` and `Module`.
   per-instruction trace. A debug aid, not a runtime — host `call`s are
   stubbed.
 - **`JitNaiveDate` / `JitNaiveTime` / `JitNaiveDateTime`** (feature
-  `chrono`) — `JitParam`/`JitArg` newtypes for `chrono` naive date/time,
+  `chrono`) — `JitArg` constant-lowering newtypes for `chrono` naive date/time,
   lowering to scalar immediates.
 - **`spawn_blocking_build`** (feature `tokio`) — runs the blocking Cranelift
   compile/finalize step on tokio's blocking thread pool and hands the module
@@ -77,31 +77,42 @@ fn build(module: &mut JITModule) {
 }
 ```
 
-See `tests/jit_integration.rs` and `tests/define_function.rs` for end-to-end
-examples covering multi-value returns, `&str` arguments, and slice arguments.
+See `tests/jit_integration.rs`, `tests/abi_boundary.rs`, and
+`tests/define_function.rs` for end-to-end examples.
 
-### Tuple returns
+### Native ABI and migration
 
-For a `#[jit_export]` function whose Rust signature is a tuple,
-`<fn>_jit::call` returns `cranelift_codegen::ir::Inst`, not an array of
-`Value`s. Pull the results out via `bcx.inst_results(inst)`:
+**Breaking ABI correction:** tuples, `&str`, slices, and chrono wrappers no
+longer implement `JitParam`. This applies to `#[jit_export]`, `jit_signature!`,
+and `define_jit_fn!`, including type aliases. Their old scalar flattening could
+corrupt values, pointers, or memory under the platform's aggregate ABI.
+
+- Replace string/slice parameters with separate `*const T` / `*mut T` and
+  `usize` parameters. The caller must supply valid storage and lengths.
+- Replace tuple parameters with separate scalars. For multiple results, pass
+  a pointer/reference to caller-owned storage, as below.
+- Declare chrono inputs as separate `i32` parameters (days, seconds,
+  nanoseconds) and reconstruct with chrono's checked `*_opt` constructors.
+  Wrappers retain `JitArg` for constant lowering; use `jit_call!` when one
+  expression supplies several scalar parameters.
+- Custom native mappings now require `unsafe impl JitParam`. They must match
+  the actual native argument and return ABI, including value encoding.
+- Explicit ABIs other than `extern "C"` are rejected by `#[jit_export]`.
 
 ```rust
-#[jit_export]
-fn divmod(a: i64, b: i64) -> (i64, i64) {
-    (a / b, a % b)
-}
+use lower_ir_utils::jit_export;
 
-let inst = divmod_jit::call(&mut bcx, &mut module, ext_id, a, b);
-let results: Vec<_> = bcx.inst_results(inst).to_vec();
-bcx.ins().return_(&results);
+#[jit_export]
+fn divmod(a: i64, b: i64, out: &mut [i64; 2]) {
+    *out = [a / b, a % b];
+}
 ```
 
-The `Inst` shape is intentional: tuple elements with multi-lane `JitParam`
-impls (`&str`, `&[T]`, nested tuples) push more than one `AbiParam` each,
-so the ABI return count and the syntactic tuple arity can diverge — a
-fixed-arity `[Value; N]` shape would silently drop lanes. See
-`tests/jit_export.rs` for a `(&'static str, i64)` regression case.
+The output reference is a thin pointer to a fixed-size array. The caller must
+keep its storage valid and exclusively borrowed during the call.
+`IntoReturns` still supports multiple SSA values for JIT-to-JIT calls using
+an explicit Cranelift signature; those values do not describe a Rust tuple ABI.
+See [the report assessment](docs/openvuln-assessment.md) for findings and scope.
 
 ## Cargo features
 
@@ -229,8 +240,7 @@ worker thread. `tests/tokio_runtime.rs` has a runnable example.
 - [ABI & calling conventions](docs/abi-and-calling-conventions.md) — how Rust
   types cross the JIT boundary: pointer passing vs. `#[repr(C)]`, the
   opaque-handle pattern for non-`repr(C)` types, returning strings/owned data,
-  the platform-default calling convention, and the Windows-x64 fat-pointer
-  caveat. Each claim cites the source it describes.
+  the platform-default calling convention, and aggregate ABI restrictions. Each claim cites the source it describes.
 
 ## Layout
 
@@ -240,7 +250,7 @@ worker thread. `tests/tokio_runtime.rs` has a runnable example.
 - `src/disasm.rs` — `define_function_with_disasm`, `format_disassembly`
   (feature `disas`).
 - `src/sim.rs` — `Simulator`, `SimValue`, `SimResult` (feature `sim`).
-- `src/external/` — foreign-type `JitParam`/`JitArg` wrappers (feature-gated;
+- `src/external/` — foreign-type `JitArg` wrappers (feature-gated;
   `chrono` submodule today).
 - `src/runtime.rs` — `spawn_blocking_build` async helper (feature `tokio`).
 - `macros/` — proc-macro crate exporting `#[jit_export]`.
@@ -257,10 +267,9 @@ cargo test
 cargo test --features disas,sim,chrono,tokio    # exercises the optional modules
 ```
 
-Targets Cranelift 0.134. CI runs the test suite on x86_64 and aarch64 Linux,
-aarch64 macOS, and x86_64 and aarch64 Windows. The `&str` / `&[T]` impls
-assume the platform passes fat pointers as separate `(ptr, len)` args; on
-platforms where that doesn't hold, prefer flat scalar params.
+Targets Cranelift 0.135. CI runs the test suite on x86_64 and aarch64 Linux,
+aarch64 macOS, and x86_64 and aarch64 Windows. Native signatures use explicit
+scalars and thin pointers on every platform.
 
 ## License
 

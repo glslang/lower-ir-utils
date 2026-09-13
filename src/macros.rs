@@ -6,7 +6,7 @@
 /// # Example
 ///
 /// ```ignore
-/// let sig = jit_signature!(&module; fn(*const HashMap<String, i64>, &str) -> i64);
+/// let sig = jit_signature!(&module; fn(*const HashMap<String, i64>, *const u8, usize) -> i64);
 /// ```
 #[macro_export]
 macro_rules! jit_signature {
